@@ -5,15 +5,22 @@ import { useState, useEffect, useCallback } from 'react';
  * Manages Spotify OAuth (PKCE), track search, user playlist fetching,
  * playlist track resolution, and preview audio buffer loading.
  *
- * Extended for playlist import with real-time analysis:
- *   - fetchUserPlaylists: GET /v1/me/playlists
- *   - fetchPlaylistTracks: GET /v1/playlists/{id}/tracks
- *   - fetchPreviewBuffer: Fetch MP3 preview → ArrayBuffer
+ * CRITICAL: Redirect URI is calculated at RUNTIME from window.location
+ * so it always matches whatever URL you're actually using (localhost, IP, or Vercel).
  */
-// Read from Vite environment variables (must be prefixed with VITE_)
 const DEFAULT_CLIENT_ID = import.meta.env.VITE_SPOTIFY_CLIENT_ID || '7d14eadd7bab468ea8cd6c291c97e565';
-// Spotify OAuth redirect URI. Must match exactly in Spotify Dashboard.
-const DEFAULT_REDIRECT_URI = import.meta.env.VITE_SPOTIFY_REDIRECT_URI || 'https://localhost:5173/callback';
+
+// Calculate redirect URI dynamically at runtime so it ALWAYS matches the current URL
+// This solves the #1 cause of "redirect_uri mismatch" errors
+const getRuntimeRedirectUri = () => {
+  // Use env var if explicitly set, otherwise auto-detect from browser URL
+  const envUri = import.meta.env.VITE_SPOTIFY_REDIRECT_URI;
+  if (envUri && envUri !== 'undefined' && envUri.trim() !== '') {
+    return envUri;
+  }
+  // Auto-detect: https://current-host.com/callback
+  return `${window.location.origin}/callback`;
+};
 
 const TOKEN_STORAGE_KEY = 'spotify_access_token';
 
@@ -22,7 +29,26 @@ const TOKEN_STORAGE_KEY = 'spotify_access_token';
  */
 export const isSpotifyConfigured = () => !!DEFAULT_CLIENT_ID;
 
-export const useSpotify = (clientId = DEFAULT_CLIENT_ID, redirectUri = DEFAULT_REDIRECT_URI) => {
+/**
+ * Get diagnostic info to help debug redirect URI issues.
+ */
+export const getSpotifyDiagnostics = () => {
+  const runtimeUri = getRuntimeRedirectUri();
+  return {
+    clientId: DEFAULT_CLIENT_ID ? '✅ Set' : '❌ Missing',
+    clientIdPrefix: DEFAULT_CLIENT_ID ? DEFAULT_CLIENT_ID.slice(0, 8) + '...' : 'none',
+    envRedirectUri: import.meta.env.VITE_SPOTIFY_REDIRECT_URI || '(not set - using auto-detect)',
+    runtimeRedirectUri: runtimeUri,
+    currentOrigin: window.location.origin,
+    currentHref: window.location.href,
+    userAgent: navigator.userAgent.slice(0, 50),
+  };
+};
+
+export const useSpotify = (clientId = DEFAULT_CLIENT_ID) => {
+  // Use runtime-calculated redirect URI
+  const redirectUri = getRuntimeRedirectUri();
+
   const [token, setToken] = useState(null);
   const [tracks, setTracks] = useState([]);
   const [searchQuery, setSearchQuery] = useState('');
@@ -31,7 +57,7 @@ export const useSpotify = (clientId = DEFAULT_CLIENT_ID, redirectUri = DEFAULT_R
 
   // Playlist state
   const [playlists, setPlaylists] = useState([]);
-  const [playlistTracks, setPlaylistTracks] = useState({}); // playlistId -> tracks[]
+  const [playlistTracks, setPlaylistTracks] = useState({});
   const [playlistLoading, setPlaylistLoading] = useState(false);
 
   // Restore token from localStorage on mount
@@ -66,6 +92,16 @@ export const useSpotify = (clientId = DEFAULT_CLIENT_ID, redirectUri = DEFAULT_R
   // Auth flow (PKCE)
   const login = useCallback(async () => {
     setAuthError(null);
+
+    // DIAGNOSTIC: Log exactly what we're sending to Spotify
+    const diagnostics = getSpotifyDiagnostics();
+    console.group('🔑 Spotify OAuth Diagnostics');
+    console.log('Client ID prefix:', diagnostics.clientIdPrefix);
+    console.log('Redirect URI (SEND THIS TO SPOTIFY DASHBOARD):', diagnostics.runtimeRedirectUri);
+    console.log('Current origin:', diagnostics.currentOrigin);
+    console.log('Current href:', diagnostics.currentHref);
+    console.groupEnd();
+
     const codeVerifier = generateCodeVerifier();
     localStorage.setItem('spotify_verifier', codeVerifier);
     const codeChallenge = await generateCodeChallenge(codeVerifier);
@@ -79,8 +115,8 @@ export const useSpotify = (clientId = DEFAULT_CLIENT_ID, redirectUri = DEFAULT_R
       code_challenge_method: 'S256',
     });
     const authUrl = `https://accounts.spotify.com/authorize?${params}`;
-    console.log('[Spotify OAuth] Redirect URI:', redirectUri);
-    console.log('[Spotify OAuth] Full auth URL:', authUrl);
+
+    console.log('[Spotify OAuth] Redirecting to:', authUrl);
     window.location = authUrl;
   }, [clientId, redirectUri]);
 
@@ -88,11 +124,19 @@ export const useSpotify = (clientId = DEFAULT_CLIENT_ID, redirectUri = DEFAULT_R
   useEffect(() => {
     const urlParams = new URLSearchParams(window.location.search);
     const code = urlParams.get('code');
+    const error = urlParams.get('error');
+    const errorDescription = urlParams.get('error_description');
+
+    if (error) {
+      console.error('[Spotify OAuth] Error from Spotify:', error, errorDescription);
+      setAuthError(`Spotify error: ${errorDescription || error}. Redirect URI used: ${redirectUri}`);
+    }
+
     if (code) {
       exchangeCodeForToken(code);
       window.history.replaceState({}, document.title, window.location.pathname);
     }
-  }, []);
+  }, [redirectUri]);
 
   const exchangeCodeForToken = async (code) => {
     const verifier = localStorage.getItem('spotify_verifier');
@@ -129,7 +173,6 @@ export const useSpotify = (clientId = DEFAULT_CLIENT_ID, redirectUri = DEFAULT_R
 
       setToken(data.access_token);
       localStorage.setItem(TOKEN_STORAGE_KEY, data.access_token);
-      // Clear verifier after successful exchange for security
       localStorage.removeItem('spotify_verifier');
       setAuthError(null);
     } catch (err) {
@@ -148,7 +191,6 @@ export const useSpotify = (clientId = DEFAULT_CLIENT_ID, redirectUri = DEFAULT_R
       });
       if (!res.ok) {
         if (res.status === 401) {
-          // Token expired or invalid
           localStorage.removeItem(TOKEN_STORAGE_KEY);
           setToken(null);
           setAuthError('Session expired. Please log in again.');
@@ -249,8 +291,6 @@ export const useSpotify = (clientId = DEFAULT_CLIENT_ID, redirectUri = DEFAULT_R
 
   /**
    * Fetch the MP3 preview for a track as an ArrayBuffer.
-   * @param {string} previewUrl
-   * @returns {Promise<ArrayBuffer|null>}
    */
   const fetchPreviewBuffer = useCallback(async (previewUrl) => {
     if (!previewUrl) return null;
@@ -296,9 +336,7 @@ function normalizeTrack(t) {
     spotifyUrl: t.external_urls?.spotify,
     previewUrl: t.preview_url,
     duration: t.duration_ms,
-    // Mock analysis fields (overridden when real analysis runs)
     bpm: 128 + Math.random() * 8,
     key: ['1A', '2A', '11B'][Math.floor(Math.random() * 3)],
   };
 }
-
