@@ -34,14 +34,14 @@ export const isSpotifyConfigured = () => !!DEFAULT_CLIENT_ID;
  */
 export const getSpotifyDiagnostics = () => {
   const runtimeUri = getRuntimeRedirectUri();
+  const valid = isValidClientId(DEFAULT_CLIENT_ID);
   return {
-    clientId: DEFAULT_CLIENT_ID ? '✅ Set' : '❌ Missing',
-    clientIdPrefix: DEFAULT_CLIENT_ID ? DEFAULT_CLIENT_ID.slice(0, 8) + '...' : 'none',
-    envRedirectUri: import.meta.env.VITE_SPOTIFY_REDIRECT_URI || '(not set - using auto-detect)',
+    clientIdValid: valid ? '✅ Valid' : '❌ INVALID',
+    clientIdValue: DEFAULT_CLIENT_ID || '(none)',
+    clientIdSource: import.meta.env.VITE_SPOTIFY_CLIENT_ID ? 'from .env file' : 'hardcoded fallback (invalid)',
     runtimeRedirectUri: runtimeUri,
     currentOrigin: window.location.origin,
     currentHref: window.location.href,
-    userAgent: navigator.userAgent.slice(0, 50),
   };
 };
 
