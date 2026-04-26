@@ -25,9 +25,14 @@ const getRuntimeRedirectUri = () => {
 const TOKEN_STORAGE_KEY = 'spotify_access_token';
 
 /**
+ * Validate that a client ID looks like a real Spotify client ID (32 hex chars).
+ */
+const isValidClientId = (id) => typeof id === 'string' && /^[a-f0-9]{32}$/i.test(id);
+
+/**
  * Check if Spotify OAuth is properly configured.
  */
-export const isSpotifyConfigured = () => !!DEFAULT_CLIENT_ID;
+export const isSpotifyConfigured = () => isValidClientId(DEFAULT_CLIENT_ID);
 
 /**
  * Get diagnostic info to help debug redirect URI issues.
