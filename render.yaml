@@ -13,9 +13,4 @@ services:
         value: 3.11.0
       - key: PORT
         value: 10000
-    # Optional: if you want a persistent SQLite database
-    disk:
-      name: vanguard-data
-      mountPath: /app/data/db
-      sizeGB: 1
 
