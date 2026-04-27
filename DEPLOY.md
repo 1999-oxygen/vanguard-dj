@@ -3,13 +3,15 @@
 ## Free Backend Hosting Options
 
 ### Option 1: Render.com (Recommended - Easiest)
-**Pros:** Native GitHub integration, simple setup, automatic deploys
-**Cons:** Free tier sleeps after 15 min inactivity (cold start ~30s)
+**Pros:** Native GitHub integration, simple setup, automatic deploys, FREE PostgreSQL
+**Cons:** Free web service sleeps after 15 min inactivity (cold start ~30s)
 
 1. Go to [render.com](https://render.com) and sign up with GitHub
 2. Click "New +" → "Blueprint"
 3. Connect your `1999-oxygen/vanguard-dj` repo
-4. Render will auto-detect `render.yaml` and configure the service
+4. Render will auto-detect `render.yaml` and configure:
+   - **Web Service:** `vanguard-api` (Python/FastAPI)
+   - **Database:** `vanguard-postgres` (PostgreSQL, free tier)
 5. Your backend will be live at `https://vanguard-api.onrender.com`
 
 **After deploy, set Vercel env var:**
@@ -75,5 +77,5 @@ VITE_VANGUARD_API_URL=https://your-app-name.koyeb.app
 
 - **Free tier limitations:** Audio analysis with librosa is CPU/memory intensive. For heavy usage, consider upgrading.
 - **File uploads:** Free tiers have request size limits (usually ~100MB). Large audio files may fail.
-- **Database:** SQLite is used by default. For production with multiple instances, switch to PostgreSQL.
+- **Database:** The backend auto-detects `DATABASE_URL` for PostgreSQL (production) and falls back to SQLite (local dev).
 

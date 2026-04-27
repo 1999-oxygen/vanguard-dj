@@ -1,5 +1,5 @@
 # Render.com Blueprint for Vanguard Neural Analysis Core
-# Deploys the Python FastAPI backend for free
+# Deploys the Python FastAPI backend + PostgreSQL for free
 
 services:
   - type: web
@@ -13,4 +13,14 @@ services:
         value: 3.11.0
       - key: PORT
         value: 10000
+      - key: DATABASE_URL
+        fromDatabase:
+          name: vanguard-postgres
+          property: connectionString
+
+databases:
+  - name: vanguard-postgres
+    plan: free
+    databaseName: vanguard_db
+    user: vanguard_user
 

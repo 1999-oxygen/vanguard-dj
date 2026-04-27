@@ -1,6 +1,7 @@
 """
 VANGUARD UNIVERSAL - THE QUANTUM DATABASE
 Stores tracks and atoms (segments) with deep-musicology metrics.
+Supports both SQLite (local dev) and PostgreSQL (production/Render).
 """
 from sqlalchemy import create_engine, Column, Integer, String, Float, JSON, ForeignKey
 from sqlalchemy.orm import declarative_base, relationship, sessionmaker
@@ -52,11 +53,21 @@ class Atom(Base):
     track = relationship("Track", back_populates="atoms")
 
 
-# Initialize Database
-db_path = os.path.join(os.path.dirname(__file__), '../../data/db/vanguard_quantum.db')
-os.makedirs(os.path.dirname(db_path), exist_ok=True)
+# --- DATABASE INITIALIZATION ---
+# Use DATABASE_URL env var for PostgreSQL (Render, etc.), fallback to SQLite locally
+database_url = os.environ.get('DATABASE_URL')
 
-engine = create_engine(f'sqlite:///{db_path}')
+if database_url:
+    # Render provides DATABASE_URL starting with postgres://, SQLAlchemy needs postgresql://
+    if database_url.startswith('postgres://'):
+        database_url = database_url.replace('postgres://', 'postgresql://', 1)
+    engine = create_engine(database_url)
+else:
+    # Local SQLite fallback
+    db_path = os.path.join(os.path.dirname(__file__), '../../data/db/vanguard_quantum.db')
+    os.makedirs(os.path.dirname(db_path), exist_ok=True)
+    engine = create_engine(f'sqlite:///{db_path}')
+
 Base.metadata.create_all(engine)
 SessionLocal = sessionmaker(bind=engine)
 
