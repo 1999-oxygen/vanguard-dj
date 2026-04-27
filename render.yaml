@@ -1,0 +1,21 @@
+# Render.com Blueprint for Vanguard Neural Analysis Core
+# Deploys the Python FastAPI backend for free
+
+services:
+  - type: web
+    name: vanguard-api
+    runtime: python
+    plan: free
+    buildCommand: pip install -r api/requirements.txt
+    startCommand: cd api && python run.py --host 0.0.0.0 --port 10000
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.0
+      - key: PORT
+        value: 10000
+    # Optional: if you want a persistent SQLite database
+    disk:
+      name: vanguard-data
+      mountPath: /app/data/db
+      sizeGB: 1
+
