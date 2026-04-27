@@ -7,13 +7,14 @@
 
 import React, { useMemo, useState, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Play, Pause, GitMerge, Zap, Music, Layers } from 'lucide-react';
+import { Play, Pause, GitMerge, Zap, Music, Layers, Volume2 } from 'lucide-react';
 
 const SegmentVisualizer = ({
   segments,
   activeMix,
   activeSegmentIndex,
   onSegmentClick,
+  onPreviewSegment,
   onPlayMix,
   onStopMix,
   isPlaying,
@@ -133,6 +134,23 @@ const SegmentVisualizer = ({
                 animate={{ opacity: [1, 0.5, 1] }}
                 transition={{ duration: 0.5, repeat: Infinity }}
               />
+            )}
+
+            {/* Preview button on hover */}
+            {onPreviewSegment && (
+              <motion.button
+                initial={{ opacity: 0, scale: 0.5 }}
+                whileHover={{ opacity: 1, scale: 1.2 }}
+                animate={{ opacity: hoveredSegment?.id === seg.id ? 1 : 0 }}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onPreviewSegment(seg.start, seg.end);
+                }}
+                className="absolute inset-0 flex items-center justify-center bg-black/40 rounded"
+                title={`Preview ${seg.trackName} (${seg.start.toFixed(1)}s - ${seg.end.toFixed(1)}s)`}
+              >
+                <Volume2 size={14} className="text-white drop-shadow-lg" />
+              </motion.button>
             )}
           </motion.div>
         ))}

@@ -101,7 +101,8 @@ export const useSpotify = (clientId = DEFAULT_CLIENT_ID) => {
     // DIAGNOSTIC: Log exactly what we're sending to Spotify
     const diagnostics = getSpotifyDiagnostics();
     console.group('🔑 Spotify OAuth Diagnostics');
-    console.log('Client ID prefix:', diagnostics.clientIdPrefix);
+    console.log('Client ID:', diagnostics.clientIdValue);
+    console.log('Client ID valid:', diagnostics.clientIdValid);
     console.log('Redirect URI (SEND THIS TO SPOTIFY DASHBOARD):', diagnostics.runtimeRedirectUri);
     console.log('Current origin:', diagnostics.currentOrigin);
     console.log('Current href:', diagnostics.currentHref);
@@ -167,6 +168,7 @@ export const useSpotify = (clientId = DEFAULT_CLIENT_ID) => {
 
       if (!res.ok) {
         const errData = await res.json().catch(() => ({}));
+        console.error('[Spotify Token] Full error response:', errData);
         const errMsg = errData.error_description || errData.error || `HTTP ${res.status}`;
         throw new Error(errMsg);
       }

@@ -10,11 +10,15 @@ import DeckPlayButton from './components/DeckPlayButton.jsx';
 import SegmentVisualizer from './components/SegmentVisualizer.jsx';
 import { useVanguard } from './hooks/useVanguard.js';
 import { useAudioEngine } from './hooks/useAudioEngine.js';
+import { useTrackAnalyzer } from './hooks/useTrackAnalyzer.js';
 import usePlaylist from './hooks/usePlaylist.js';
 import useAutoMix from './hooks/useAutoMix.js';
 import { useSegmentEngine } from './hooks/useSegmentEngine.js';
 import SpotifySearch from './components/SpotifySearch.jsx';
 import FileUpload from './components/FileUpload.jsx';
+import DnaBadge from './components/DnaBadge.jsx';
+import AtomDeck from './components/AtomDeck.jsx';
+import { useAtomPlayer } from './hooks/useAtomPlayer.js';
 import { AudioContextManager } from './audio/index.js';
 
 const INITIAL_LIBRARY = [
@@ -37,11 +41,14 @@ export default function App() {
   const [isDjMode, setIsDjMode] = useState(false);
   const [crossfaderPos, setCrossfaderPos] = useState(0);
   const [compatibleSegs, setCompatibleSegs] = useState([]);
+  const [previewBuffer, setPreviewBuffer] = useState(null);
 
   const v = useVanguard(INITIAL_LIBRARY);
   const ae = useAudioEngine(v.addLog);
+  const ta = useTrackAnalyzer(v.addLog);
   const pl = usePlaylist();
   const se = useSegmentEngine(ae, v.addLog);
+  const atomPlayer = useAtomPlayer(previewBuffer);
 
   const engineAPI = useMemo(() => ({
     playPause: ae.playPause,
@@ -65,10 +72,28 @@ export default function App() {
     try {
       const ab = await file.arrayBuffer();
       const buf = await ac.decodeAudioData(ab);
-      await se.processTrack(buf, { id: Date.now() + Math.random(), name: file.name, bpm: 128 });
+      setPreviewBuffer(buf); // Store for Ghost-Tail preview engine
+      const metadata = { id: Date.now() + Math.random(), name: file.name, bpm: 128 };
+
+      // Run analysis (tries backend first, falls back to client-side)
+      const analysis = await ta.analyzeTrack(buf, file, metadata);
+
+      if (analysis && analysis.atoms && analysis.atoms.length > 0) {
+        // Use DNA-powered atom segmentation
+        await se.processTrackWithDNA(buf, metadata, {
+          bpm: analysis.bpm,
+          key: analysis.key,
+          total_atoms: analysis.totalAtoms,
+          atoms: analysis.atoms,
+        });
+      } else {
+        // Fallback to standard JS segmentation
+        await se.processTrack(buf, metadata);
+      }
+
       pl.addTrack(file, false);
     } catch (e) { v.addLog(`Upload failed: ${e.message}`, 'error'); }
-  }, [se, pl, v]);
+  }, [se, pl, v, ta]);
 
   const handleGenerateMix = useCallback(async (style) => {
     const mix = await se.generateMixPlan({ style, targetDuration: 300, name: `${style} Mix` });
@@ -364,15 +389,31 @@ export default function App() {
                 <h2 className="font-retro text-lg font-black text-neon/cyan-400 uppercase tracking-widest mb-4">Segment Analysis</h2>
                 <p className="text-sm text-slate-400 font-mono mb-4">
                   Upload tracks to analyze and segment them into mixable parts.
+                  {ta.backendAvailable && (
+                    <span className="text-neon/purple-400 ml-2">● Neural Core online</span>
+                  )}
                 </p>
                 <FileUpload onAddTracks={handleFileUpload} />
               </div>
+
+              {ta.analysis && ta.analysis.source === 'librosa-backend' && (
+                <DnaBadge dna={ta.analysis} source={ta.analysis.source} />
+              )}
+
+              {ta.analysis && ta.analysis.atoms && (
+                <AtomDeck
+                  dna={ta.analysis}
+                  audioBuffer={previewBuffer}
+                  trackName={ta.analysis.track_name}
+                />
+              )}
 
               <SegmentVisualizer
                 segments={se.segments}
                 activeMix={se.activeMix}
                 activeSegmentIndex={se.activeSegmentIndex}
                 onSegmentClick={handleSegmentClick}
+                onPreviewSegment={atomPlayer.previewSegment}
                 onPlayMix={handlePlayMix}
                 onStopMix={se.stopMix}
                 isPlaying={!!se.activeMix}
