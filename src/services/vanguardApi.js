@@ -4,7 +4,7 @@
  * Falls back to client-side JS analysis if the backend is unreachable.
  */
 
-const API_BASE_URL = import.meta.env.VITE_VANGUARD_API_URL || 'https://vanguard-api-v3.onrender.com';
+const API_BASE_URL = import.meta.env.VITE_VANGUARD_API_URL || 'http://localhost:8000';
 
 /**
  * Upload an audio file to the Vanguard backend for DNA analysis.

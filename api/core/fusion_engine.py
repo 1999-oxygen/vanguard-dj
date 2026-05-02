@@ -3,7 +3,7 @@ VANGUARD UNIVERSAL - FUSION QUERY ENGINE
 The tool to categorize, filter, and pull segments for live mixing.
 """
 from sqlalchemy import and_
-from ..db.schema import SessionLocal, Atom, Track
+from db.schema import SessionLocal, Atom, Track
 
 
 class FusionQueryEngine:

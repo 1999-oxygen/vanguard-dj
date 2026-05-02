@@ -5,8 +5,8 @@ Orchestrates high-end ML models (Essentia, Demucs) to extract brutal metrics.
 import librosa
 import numpy as np
 import hashlib
-from .slicer import ZeroCrossingEngine
-from ..db.schema import SessionLocal, Track, Atom
+from core.slicer import ZeroCrossingEngine
+from db.schema import SessionLocal, Track, Atom
 
 
 class UniversalAnalyzer:
