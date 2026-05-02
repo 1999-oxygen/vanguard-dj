@@ -13,6 +13,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { AudioContextManager } from '../audio/index.js';
 import { analyzeAndChopTrack } from '../audio/segmentation/SegmentAnalyzer.js';
+import { extractBufferSlice } from '../audio/utils/buffers.js';
 import { buildSegmentGraph, computeSegmentCompatibility } from '../audio/segmentation/SegmentMatcher.js';
 import { generateMix, generateMixVariations, MIX_STYLES } from '../audio/segmentation/MixEngine.js';
 import {
@@ -316,6 +317,103 @@ export const useSegmentEngine = (audioEngine, addLog) => {
   }, [segments, mixPlans]);
 
   /**
+   * Process a track using a pre-computed DNA payload from the Neural Core.
+   * Converts librosa-derived atoms directly into mixable segments.
+   * @param {AudioBuffer} audioBuffer
+   * @param {Object} trackMetadata
+   * @param {Object} dna - DNA payload from VanguardAnalyzer
+   */
+  const processTrackWithDNA = useCallback(async (audioBuffer, trackMetadata, dna) => {
+    const contextManager = AudioContextManager.getInstance();
+    const audioContext = contextManager.getContext();
+
+    if (!audioContext) {
+      addLog('AudioContext not initialized', 'error');
+      return;
+    }
+
+    if (!dna || !dna.atoms || dna.atoms.length === 0) {
+      addLog('Invalid DNA payload, falling back to standard analysis', 'warning');
+      return processTrack(audioBuffer, trackMetadata);
+    }
+
+    setIsProcessing(true);
+    setProcessProgress({ current: 0, total: dna.atoms.length, stage: 'dna_atomizing' });
+    addLog(`Importing ${dna.atoms.length} DNA atoms for "${trackMetadata.name}"...`, 'ai');
+
+    try {
+      const trackSegments = [];
+
+      for (let i = 0; i < dna.atoms.length; i++) {
+        const atom = dna.atoms[i];
+        const start = atom.start_sec;
+        const end = atom.end_sec;
+
+        // Extract buffer slice for this atom
+        const segmentBuffer = extractBufferSlice(audioBuffer, start, end, audioContext);
+
+        // Build feature vector from atom data
+        const features = {
+          duration: atom.duration,
+          bpm: dna.bpm || trackMetadata.bpm || 128,
+          key: dna.key || trackMetadata.key || 'Unknown',
+          avgEnergy: Math.min(1, atom.energy_level / 10),
+          maxEnergy: Math.min(1, atom.energy_level / 10),
+          energyVariance: 0.1,
+          energyStart: atom.energy_level / 10,
+          energyEnd: atom.energy_level / 10,
+          spectralFlux: 0.3,
+          zeroCrossingRate: 0.05,
+          spectralRolloff: 0.4,
+          dynamicRange: 0.5,
+          vocalDensity: 0.3,
+          isVocalHeavy: false,
+          isPercussive: true,
+          isBright: true,
+        };
+
+        trackSegments.push({
+          id: `${trackMetadata.id || 'track'}_seg_${i}`,
+          trackId: trackMetadata.id,
+          trackName: trackMetadata.name,
+          start,
+          end,
+          duration: atom.duration,
+          buffer: segmentBuffer,
+          features,
+          stems: null,
+        });
+
+        // Store in IndexedDB
+        await storeSegment(trackSegments[i], segmentBuffer);
+
+        setProcessProgress({
+          current: i + 1,
+          total: dna.atoms.length,
+          stage: 'storing_atoms',
+        });
+      }
+
+      // Update local state
+      const allSegments = await getAllSegments();
+      setSegments(allSegments);
+
+      // Rebuild graph
+      graphRef.current = buildSegmentGraph(allSegments, 8, 0.5);
+
+      addLog(
+        `DNA imported: ${trackSegments.length} atoms from "${trackMetadata.name}". Total pool: ${allSegments.length}`,
+        'ai'
+      );
+    } catch (error) {
+      addLog(`DNA import failed: ${error.message}`, 'error');
+    } finally {
+      setIsProcessing(false);
+      setProcessProgress({ current: 0, total: 0, stage: '' });
+    }
+  }, [addLog, processTrack]);
+
+  /**
    * Clear all segments and mix plans.
    */
   const clearAll = useCallback(async () => {
@@ -339,6 +437,7 @@ export const useSegmentEngine = (audioEngine, addLog) => {
     // Actions
     processTrack,
     processTracks,
+    processTrackWithDNA,
     generateMixPlan,
     generateVariations,
     playMix,

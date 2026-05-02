@@ -1,0 +1,13 @@
+librosa>=0.10.1
+numpy>=1.24.0
+sqlalchemy>=2.0.0
+fastapi>=0.110.0
+uvicorn[standard]>=0.27.0
+python-multipart>=0.0.9
+
+# Optional: For QuantumMLExtractor (Demucs + Whisper)
+# Install separately: pip install openai-whisper demucs torch
+# whisper>=20231117
+# demucs>=4.0.0
+# torch>=2.0.0
+

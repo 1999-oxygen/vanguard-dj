@@ -151,6 +151,54 @@ export const useAudioEngine = (addLog) => {
   }, []);
 
   /**
+   * Load an AudioBuffer directly into a specific deck.
+   * Used by the segment engine for mix playback.
+   * @param {'A'|'B'} deckId
+   * @param {AudioBuffer} audioBuffer
+   * @param {Object} metadata
+   */
+  const loadTrackToDeck = useCallback(async (deckId, audioBuffer, metadata = {}) => {
+    const engine = engineRef.current;
+    if (!engine || !engine.isInitialized) return;
+    await engine.resume();
+    engine.decks[deckId].loadBuffer(audioBuffer, metadata);
+    addLog(`Loaded segment to Deck ${deckId}`, 'system');
+  }, [addLog]);
+
+  /**
+   * Play a specific deck.
+   * @param {'A'|'B'} deckId
+   */
+  const playDeck = useCallback((deckId) => {
+    const engine = engineRef.current;
+    if (!engine || !engine.isInitialized) return;
+    engine.playDeck(deckId);
+    setIsPlaying(true);
+  }, []);
+
+  /**
+   * Pause a specific deck.
+   * @param {'A'|'B'} deckId
+   */
+  const pauseDeck = useCallback((deckId) => {
+    const engine = engineRef.current;
+    if (!engine || !engine.isInitialized) return;
+    engine.pauseDeck(deckId);
+    setIsPlaying(false);
+  }, []);
+
+  /**
+   * Stop a specific deck.
+   * @param {'A'|'B'} deckId
+   */
+  const stopDeck = useCallback((deckId) => {
+    const engine = engineRef.current;
+    if (!engine || !engine.isInitialized) return;
+    engine.stopDeck(deckId);
+    setIsPlaying(false);
+  }, []);
+
+  /**
    * Set the master output gain.
    * @param {number} level - 0.0 to 1.0.
    */
@@ -266,6 +314,12 @@ export const useAudioEngine = (addLog) => {
     setMasterGain,
     setDeckBPM,
     switchActiveDeck,
+
+    // Segment engine integration
+    loadTrackToDeck,
+    playDeck,
+    pauseDeck,
+    stopDeck,
 
     // Visualization
     getFrequencyData,

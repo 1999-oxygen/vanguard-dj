@@ -1,5 +1,4 @@
 import { useState, useEffect, useCallback } from 'react';
-import { useTrackAnalyzer } from './useTrackAnalyzer.js';
 import { AudioContextManager } from '../audio/index.js';
 
 const STORAGE_KEY = 'vanguard-playlist';
@@ -8,14 +7,13 @@ const STORAGE_KEY = 'vanguard-playlist';
  * @fileoverview usePlaylist Hook
  * Manages the track library, localStorage persistence, and track import.
  * Supports three import paths:
- *   1. Local file → decode → real analysis
+ *   1. Local file → metadata only (analysis done upstream)
  *   2. Spotify track with previewUrl → fetch → decode → real analysis
  *   3. Spotify track without previewUrl → metadata only (mock analysis)
  */
 export const usePlaylist = () => {
   const [tracks, setTracks] = useState([]);
   const [loading, setLoading] = useState(false);
-  const { analyzeTrack } = useTrackAnalyzer();
 
   // Load persisted tracks on mount
   useEffect(() => {
@@ -47,84 +45,78 @@ export const usePlaylist = () => {
   }, []);
 
   /**
-   * Add a track to the library.
-   * @param {File|Object} input - File for local, track object for Spotify.
-   * @param {boolean} isSpotify - Whether input is a Spotify track.
-   * @param {AudioBuffer} [audioBuffer] - Pre-decoded buffer from preview (optional).
+   * Add a track with pre-computed metadata (from upstream analysis).
+   * This is the primary path for local files that were already analyzed.
+   * @param {Object} trackData - Pre-computed track metadata object.
    */
-  const addTrack = useCallback(async (input, isSpotify = false, audioBuffer = null) => {
+  const addTrack = useCallback((trackData) => {
+    if (!trackData || !trackData.id) {
+      console.error('[usePlaylist] Invalid track data');
+      return;
+    }
+    const updated = [...tracks, trackData];
+    saveTracks(updated);
+  }, [tracks, saveTracks]);
+
+  /**
+   * Add a raw file with optional metadata. If no metadata provided,
+   * creates a basic entry with filename.
+   * @param {File} file - Audio file.
+   * @param {Object} [metadata={}] - Optional pre-computed metadata.
+   */
+  const addFile = useCallback(async (file, metadata = {}) => {
     setLoading(true);
     try {
-      let trackData;
-
-      if (isSpotify) {
-        // If we have a decoded AudioBuffer from the preview, run real analysis
-        if (audioBuffer) {
-          const analysis = await analyzeTrack(audioBuffer);
-          trackData = {
-            id: input.id || `spotify_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
-            name: input.name,
-            artist: input.artist,
-            spotifyUrl: input.spotifyUrl,
-            previewUrl: input.previewUrl,
-            duration: input.duration,
-            source: 'spotify-preview',
-            hasAnalysis: true,
-            ...analysis,
-            uploadedAt: new Date().toISOString(),
-          };
-        } else {
-          // No preview available: metadata-only with mock analysis
-          trackData = {
-            id: input.id || `spotify_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
-            name: input.name,
-            artist: input.artist,
-            spotifyUrl: input.spotifyUrl,
-            previewUrl: input.previewUrl,
-            duration: input.duration,
-            bpm: input.bpm || 128 + Math.random() * 12,
-            key: input.key || ['1A', '2A', '11B', '9A'][Math.floor(Math.random() * 4)],
-            mood: input.mood || ['Dark', 'Bright', 'Minimal', 'Energetic'][Math.floor(Math.random() * 4)],
-            source: 'spotify',
-            needsLocalFile: true,
-            hasAnalysis: false,
-            uploadedAt: new Date().toISOString(),
-          };
-        }
-      } else {
-        // Local file: use shared AudioContext for decode
-        const file = input;
-        const contextManager = AudioContextManager.getInstance();
-        const audioContext = contextManager.getContext() || contextManager.init();
-
-        const arrayBuffer = await file.arrayBuffer();
-        const decodedBuffer = await audioContext.decodeAudioData(arrayBuffer);
-        const analysis = await analyzeTrack(decodedBuffer);
-
-        if (analysis) {
-          trackData = {
-            id: Date.now() + Math.random(),
-            name: file.name,
-            duration: decodedBuffer.duration,
-            ...analysis,
-            uploadedAt: new Date().toISOString(),
-            file: URL.createObjectURL(file),
-            source: 'local',
-            hasAnalysis: true,
-          };
-        }
-      }
-
-      if (trackData) {
-        const updated = [...tracks, trackData];
-        saveTracks(updated);
-      }
+      const trackData = {
+        id: metadata.id || Date.now() + Math.random(),
+        name: metadata.name || file.name,
+        artist: metadata.artist || 'Unknown',
+        duration: metadata.duration || 0,
+        bpm: metadata.bpm || 128,
+        key: metadata.key || 'Unknown',
+        mood: metadata.mood || 'Unknown',
+        source: metadata.source || 'local',
+        hasAnalysis: metadata.hasAnalysis || false,
+        uploadedAt: new Date().toISOString(),
+        file: URL.createObjectURL(file),
+        ...metadata,
+      };
+      const updated = [...tracks, trackData];
+      saveTracks(updated);
+      return trackData;
     } catch (error) {
-      console.error('[usePlaylist] Add track failed:', error);
+      console.error('[usePlaylist] Add file failed:', error);
+      return null;
     } finally {
       setLoading(false);
     }
-  }, [tracks, saveTracks, analyzeTrack]);
+  }, [tracks, saveTracks]);
+
+  /**
+   * Add a Spotify track.
+   * @param {Object} input - Spotify track object.
+   * @param {boolean} hasPreview - Whether preview URL is available.
+   */
+  const addSpotifyTrack = useCallback((input, hasPreview = false) => {
+    const trackData = {
+      id: input.id || `spotify_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+      name: input.name,
+      artist: input.artist,
+      spotifyUrl: input.spotifyUrl,
+      previewUrl: input.previewUrl,
+      duration: input.duration,
+      bpm: input.bpm || 128 + Math.random() * 12,
+      key: input.key || ['1A', '2A', '11B', '9A'][Math.floor(Math.random() * 4)],
+      mood: input.mood || ['Dark', 'Bright', 'Minimal', 'Energetic'][Math.floor(Math.random() * 4)],
+      source: hasPreview ? 'spotify-preview' : 'spotify',
+      hasAnalysis: hasPreview,
+      needsLocalFile: !hasPreview,
+      uploadedAt: new Date().toISOString(),
+    };
+    const updated = [...tracks, trackData];
+    saveTracks(updated);
+    return trackData;
+  }, [tracks, saveTracks]);
 
   const removeTrack = useCallback((id) => {
     const filtered = tracks.filter((t) => t.id !== id);
@@ -150,6 +142,8 @@ export const usePlaylist = () => {
     tracks,
     loading,
     addTrack,
+    addFile,
+    addSpotifyTrack,
     removeTrack,
     updateTrack,
     searchTracks,

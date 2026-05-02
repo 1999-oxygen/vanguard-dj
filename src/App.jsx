@@ -10,11 +10,20 @@ import DeckPlayButton from './components/DeckPlayButton.jsx';
 import SegmentVisualizer from './components/SegmentVisualizer.jsx';
 import { useVanguard } from './hooks/useVanguard.js';
 import { useAudioEngine } from './hooks/useAudioEngine.js';
+import { useTrackAnalyzer } from './hooks/useTrackAnalyzer.js';
 import usePlaylist from './hooks/usePlaylist.js';
 import useAutoMix from './hooks/useAutoMix.js';
 import { useSegmentEngine } from './hooks/useSegmentEngine.js';
 import SpotifySearch from './components/SpotifySearch.jsx';
 import FileUpload from './components/FileUpload.jsx';
+import DnaBadge from './components/DnaBadge.jsx';
+import { DEMO_LIBRARY } from './data/demoLibrary.js';
+import AtomDeck from './components/AtomDeck.jsx';
+import { useFlightPlanPlayer } from './hooks/useFlightPlanPlayer.js';
+import FlightPlanTimeline from './components/FlightPlanTimeline.jsx';
+import QuantumCrate from './components/QuantumCrate.jsx';
+import { recombineSegments } from './services/universalApi.js';
+import BackendStatus from './components/BackendStatus.jsx';
 import { AudioContextManager } from './audio/index.js';
 
 const INITIAL_LIBRARY = [
@@ -37,11 +46,16 @@ export default function App() {
   const [isDjMode, setIsDjMode] = useState(false);
   const [crossfaderPos, setCrossfaderPos] = useState(0);
   const [compatibleSegs, setCompatibleSegs] = useState([]);
+  const [previewBuffer, setPreviewBuffer] = useState(null);
+  const [flightPlan, setFlightPlan] = useState(null);
+  const [isGeneratingFlightPlan, setIsGeneratingFlightPlan] = useState(false);
 
   const v = useVanguard(INITIAL_LIBRARY);
   const ae = useAudioEngine(v.addLog);
+  const ta = useTrackAnalyzer(v.addLog);
   const pl = usePlaylist();
   const se = useSegmentEngine(ae, v.addLog);
+  const fpp = useFlightPlanPlayer(v.addLog);
 
   const engineAPI = useMemo(() => ({
     playPause: ae.playPause,
@@ -65,15 +79,99 @@ export default function App() {
     try {
       const ab = await file.arrayBuffer();
       const buf = await ac.decodeAudioData(ab);
-      await se.processTrack(buf, { id: Date.now() + Math.random(), name: file.name, bpm: 128 });
-      pl.addTrack(file, false);
-    } catch (e) { v.addLog(`Upload failed: ${e.message}`, 'error'); }
-  }, [se, pl, v]);
+      setPreviewBuffer(buf);
+      const metadata = { id: Date.now() + Math.random(), name: file.name, bpm: 128 };
+
+      // Run analysis (tries backend first, falls back to client-side)
+      const analysis = await ta.analyzeTrack(buf, file, metadata);
+
+      if (analysis && analysis.atoms && analysis.atoms.length > 0) {
+        // Use DNA-powered atom segmentation
+        await se.processTrackWithDNA(buf, metadata, {
+          bpm: analysis.bpm,
+          key: analysis.key,
+          total_atoms: analysis.totalAtoms,
+          atoms: analysis.atoms,
+        });
+      } else {
+        // Fallback to standard JS segmentation
+        await se.processTrack(buf, metadata);
+      }
+
+      // Add to playlist with pre-computed metadata
+      pl.addFile(file, {
+        id: metadata.id,
+        name: file.name,
+        duration: buf.duration,
+        bpm: analysis?.bpm || 128,
+        key: analysis?.key || 'Unknown',
+        hasAnalysis: !!analysis,
+        source: analysis?.source || 'local',
+      });
+
+      v.addLog(`Added "${file.name}" to library`, 'system');
+    } catch (e) {
+      v.addLog(`Upload failed: ${e.message}`, 'error');
+      // Still add the file even if analysis failed
+      pl.addFile(file, { name: file.name, hasAnalysis: false });
+    }
+  }, [se, pl, v, ta]);
 
   const handleGenerateMix = useCallback(async (style) => {
     const mix = await se.generateMixPlan({ style, targetDuration: 300, name: `${style} Mix` });
     if (mix) await se.playMix(mix);
   }, [se]);
+
+  const handleGenerateFlightPlan = useCallback(async () => {
+    if (se.segments.length < 2) {
+      v.addLog('Need at least 2 segments to generate a flight plan', 'warning');
+      return;
+    }
+
+    setIsGeneratingFlightPlan(true);
+    v.addLog('Generating Universal Flight Plan...', 'ai');
+
+    try {
+      // Convert segments to the format the recombinator expects
+      const segmentData = se.segments.map(seg => ({
+        id: seg.id,
+        trackName: seg.trackName,
+        start: seg.start,
+        end: seg.end,
+        duration: seg.duration,
+        features: seg.features || {},
+        stem_target: seg.stem_target || 'master',
+      }));
+
+      const result = await recombineSegments(segmentData, {
+        master_bpm: v.bpm,
+        master_key: currentTrack.key || '8A',
+        output_name: `fusion_${Date.now()}`,
+      });
+
+      if (result?.success && result.flight_plan) {
+        setFlightPlan(result.flight_plan);
+        v.addLog(
+          `Flight plan ready: ${result.flight_plan.total_events} events, ` +
+          `${result.flight_plan.total_duration_sec}s at ${result.flight_plan.global_bpm} BPM`,
+          'ai'
+        );
+      } else {
+        v.addLog('Flight plan generation failed', 'error');
+      }
+    } catch (error) {
+      v.addLog(`Flight plan error: ${error.message}`, 'error');
+    } finally {
+      setIsGeneratingFlightPlan(false);
+    }
+  }, [se, v, currentTrack]);
+
+  const handleLoadDemoTracks = useCallback(() => {
+    DEMO_LIBRARY.forEach((track) => {
+      pl.addTrack(track);
+    });
+    v.addLog(`Loaded ${DEMO_LIBRARY.length} demo tracks into library`, 'system');
+  }, [pl, v]);
 
   const handleSegmentClick = useCallback((seg) => {
     setCompatibleSegs(se.findCompatibleSegments(seg.id, 6));
@@ -83,7 +181,6 @@ export default function App() {
   const handleToggleLive = useCallback(() => {
     const next = !v.isLive;
     v.setIsLive(next);
-    ae.playPause(next);
   }, [v, ae]);
 
   const handlePlayMix = useCallback(() => {
@@ -122,9 +219,11 @@ export default function App() {
             <span className="text-neon/purple-400"><Cpu size={12} /></span>
             <span>{ae.isInitialized ? 'ENGINE ONLINE' : 'STANDBY'}</span>
             <span className="w-px h-3 bg-neon/retro/scanline" />
-            <span className={v.isLive ? 'text-neon/pink-400 animate-pulse' : 'text-slate-500'}>
+<span className={v.isLive ? 'text-neon/pink-400 animate-pulse' : 'text-slate-500'}>
               {v.isLive ? '● LIVE' : '○ IDLE'}
             </span>
+            <span className="w-px h-3 bg-neon/retro/scanline" />
+            <BackendStatus />
           </div>
         </div>
 
@@ -186,8 +285,21 @@ export default function App() {
                   ))}
                 </div>
                 <FileUpload onAddTracks={handleFileUpload} />
+                <button
+                  onClick={handleLoadDemoTracks}
+                  className="w-full px-4 py-3 rounded-xl bg-neon/cyan-500/10 text-neon/cyan-300 border border-neon/cyan-500/20 hover:bg-neon/cyan-500/20 transition-all text-[10px] font-retro font-black uppercase tracking-widest"
+                >
+                  Load 100 Demo Tracks
+                </button>
                 <SpotifySearch
-                  onAddTrack={pl.addTrack}
+                  onAddTrack={(track, isSpotify, audioBuffer) => {
+                    // Convert old API to new playlist API
+                    if (audioBuffer) {
+                      pl.addSpotifyTrack(track, true);
+                    } else {
+                      pl.addSpotifyTrack(track, false);
+                    }
+                  }}
                   onProcessTrack={se.processTrack}
                   addLog={v.addLog}
                 />
@@ -227,11 +339,24 @@ export default function App() {
               ))}
             </div>
             <FileUpload onAddTracks={handleFileUpload} />
-            <SpotifySearch
-              onAddTrack={pl.addTrack}
-              onProcessTrack={se.processTrack}
-              addLog={v.addLog}
-            />
+            <button
+              onClick={handleLoadDemoTracks}
+              className="w-full px-4 py-3 rounded-xl bg-neon/cyan-500/10 text-neon/cyan-300 border border-neon/cyan-500/20 hover:bg-neon/cyan-500/20 transition-all text-[10px] font-retro font-black uppercase tracking-widest"
+            >
+              Load 100 Demo Tracks
+            </button>
+                <SpotifySearch
+                  onAddTrack={(track, isSpotify, audioBuffer) => {
+                    // Convert old API to new playlist API
+                    if (audioBuffer) {
+                      pl.addSpotifyTrack(track, true);
+                    } else {
+                      pl.addSpotifyTrack(track, false);
+                    }
+                  }}
+                  onProcessTrack={se.processTrack}
+                  addLog={v.addLog}
+                />
           </div>
         </aside>
 
@@ -364,15 +489,41 @@ export default function App() {
                 <h2 className="font-retro text-lg font-black text-neon/cyan-400 uppercase tracking-widest mb-4">Segment Analysis</h2>
                 <p className="text-sm text-slate-400 font-mono mb-4">
                   Upload tracks to analyze and segment them into mixable parts.
+                  {ta.backendAvailable && (
+                    <span className="text-neon/purple-400 ml-2">● Neural Core online</span>
+                  )}
                 </p>
                 <FileUpload onAddTracks={handleFileUpload} />
               </div>
+
+              {ta.analysis && ta.analysis.source === 'librosa-backend' && (
+                <DnaBadge dna={ta.analysis} source={ta.analysis.source} />
+              )}
+
+              {ta.analysis && ta.analysis.atoms && (
+                <AtomDeck
+                  dna={ta.analysis}
+                  audioBuffer={previewBuffer}
+                  trackName={ta.analysis.track_name}
+                />
+              )}
 
               <SegmentVisualizer
                 segments={se.segments}
                 activeMix={se.activeMix}
                 activeSegmentIndex={se.activeSegmentIndex}
                 onSegmentClick={handleSegmentClick}
+                onPreviewSegment={(seg) => {
+                  // Preview segment using the audio engine
+                  if (previewBuffer) {
+                    const ctx = AudioContextManager.getInstance();
+                    const ac = ctx.getContext();
+                    const source = ac.createBufferSource();
+                    source.buffer = previewBuffer;
+                    source.connect(ac.destination);
+                    source.start(0, seg.start, seg.duration);
+                  }
+                }}
                 onPlayMix={handlePlayMix}
                 onStopMix={se.stopMix}
                 isPlaying={!!se.activeMix}
@@ -397,50 +548,141 @@ export default function App() {
             <motion.div
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
-              className="space-y-6"
+              className="flex flex-col md:flex-row gap-4 h-[calc(100vh-8rem)]"
             >
-              <div className="glass-retro rounded-3xl p-6">
-                <h2 className="font-retro text-lg font-black text-neon/cyan-400 uppercase tracking-widest mb-4">Fusion Mix Generator</h2>
-                <p className="text-sm text-slate-400 font-mono mb-4">
-                  Generate AI-powered mixes from your segmented tracks.
-                </p>
-                <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-                  {Object.entries(se.MIX_STYLES || {}).map(([key, style]) => (
-                    <button
-                      key={key}
-                      onClick={() => handleGenerateMix(style)}
-                      className="px-4 py-3 rounded-xl bg-neon/purple-500/10 text-neon/purple-300 border border-neon/purple-500/20 hover:bg-neon/purple-500/20 transition-all text-[10px] font-retro font-black uppercase tracking-widest"
-                    >
-                      {key.replace(/_/g, ' ')}
-                    </button>
-                  ))}
-                </div>
+              {/* LEFT: Quantum Crate — Visual Atom Database */}
+              <div className="w-full md:w-[420px] flex-shrink-0 h-full">
+                <QuantumCrate
+                  atoms={se.segments.map((seg) => ({
+                    id: seg.id,
+                    source: seg.trackName || 'Unknown',
+                    type: seg.stem_target || 'master',
+                    duration_sec: seg.duration,
+                    bpm: seg.features?.bpm || 128,
+                    key: seg.features?.key || '8A',
+                    energy: seg.features?.avgEnergy || 0.5,
+                    wps: seg.features?.vocalDensity || 0,
+                    tags: [
+                      seg.features?.isVocalHeavy ? 'Vocal-Heavy' : null,
+                      seg.features?.isPercussive ? 'Percussive' : null,
+                      seg.features?.isBright ? 'Bright' : null,
+                      seg.features?.avgEnergy > 0.7 ? 'High-Energy' : seg.features?.avgEnergy < 0.3 ? 'Low-Energy' : null,
+                    ].filter(Boolean),
+                  }))}
+                  masterBpm={v.bpm}
+                  onSwap={(atom, stretchRatio) => {
+                    // Update flight plan: swap atom on matching stem_target lane
+                    setFlightPlan((prev) => {
+                      if (!prev) return prev;
+                      const newTimeline = prev.timeline.map((event) => {
+                        if (event.stem_target === atom.type) {
+                          return {
+                            ...event,
+                            atom_id: atom.id,
+                            time_stretch_ratio: stretchRatio,
+                            ui_metrics: {
+                              energy: atom.energy,
+                              vocals_wps: atom.wps,
+                            },
+                          };
+                        }
+                        return event;
+                      });
+                      return { ...prev, timeline: newTimeline };
+                    });
+                    v.addLog(
+                      `Swapped ${atom.type} atom → ${atom.id} (stretch: ${stretchRatio.toFixed(3)}x)`,
+                      'system'
+                    );
+                  }}
+                />
               </div>
 
-              {se.mixPlans.length > 0 && (
-                <div className="glass-retro rounded-3xl p-6">
-                  <h3 className="font-retro text-xs font-black uppercase tracking-widest text-neon/cyan-400 mb-4">Saved Mix Plans</h3>
-                  <div className="space-y-2">
-                    {se.mixPlans.map((plan) => (
-                      <div
-                        key={plan.id}
-                        className="flex items-center justify-between p-3 rounded-xl bg-slate-900/50 border border-neon/retro/scanline"
-                      >
-                        <div>
-                          <span className="text-sm text-neon/cyan-300 font-mono">{plan.name || 'Untitled Mix'}</span>
-                          <span className="text-xs text-slate-500 ml-2">{plan.segments?.length || 0} segments</span>
-                        </div>
-                        <button
-                          onClick={() => se.playMix(plan)}
-                          className="px-3 py-1 rounded-lg bg-neon/cyan-500/20 text-neon/cyan-300 text-[10px] font-retro font-black uppercase tracking-widest hover:bg-neon/cyan-500/30 transition-all"
-                        >
-                          Play
-                        </button>
-                      </div>
-                    ))}
+              {/* RIGHT: Recombinator Timeline */}
+              <div className="flex-grow flex flex-col gap-4 h-full overflow-hidden">
+                {/* Header */}
+                <div className="glass-retro rounded-3xl p-4 flex items-center justify-between flex-shrink-0">
+                  <div>
+                    <h2 className="font-retro text-xs font-black uppercase tracking-widest text-neon/cyan-400 flex items-center gap-2">
+                      <Layers size={14} />
+                      Universal Timeline
+                    </h2>
+                    <p className="text-[10px] text-slate-500 font-mono mt-1">
+                      Master: {v.bpm} BPM | Key: {currentTrack.key} | Elastic Sync: Active
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={handleGenerateFlightPlan}
+                      disabled={isGeneratingFlightPlan || se.segments.length < 2}
+                      className="px-4 py-2 rounded-xl bg-gradient-to-r from-neon/purple-500/20 to-neon/cyan-500/20 text-neon/cyan-300 border border-neon/purple-500/30 hover:from-neon/purple-500/30 transition-all text-[10px] font-retro font-black uppercase tracking-widest disabled:opacity-50"
+                    >
+                      {isGeneratingFlightPlan ? (
+                        <span className="flex items-center gap-2">
+                          <RefreshCcw size={12} className="animate-spin" />
+                          Generating...
+                        </span>
+                      ) : (
+                        <span className="flex items-center gap-2">
+                          <GitBranch size={12} />
+                          Generate Plan
+                        </span>
+                      )}
+                    </button>
                   </div>
                 </div>
-              )}
+
+                {/* Flight Plan Timeline */}
+                <div className="flex-grow overflow-hidden">
+                  {flightPlan ? (
+                    <FlightPlanTimeline
+                      flightPlan={flightPlan}
+                      isPlaying={fpp.isPlaying}
+                      currentTime={fpp.currentTime}
+                      onPlay={() => fpp.playFlightPlan(flightPlan)}
+                      onStop={fpp.stopFlightPlan}
+                      onSeek={fpp.seekTo}
+                      className="h-full"
+                    />
+                  ) : (
+                    <div className="h-full glass-retro rounded-3xl flex flex-col items-center justify-center text-center p-8">
+                      <Layers size={48} className="text-neon/purple-400/30 mb-4" />
+                      <p className="text-sm text-slate-500 font-mono mb-2">No Flight Plan Generated</p>
+                      <p className="text-xs text-slate-600 font-mono max-w-xs">
+                        Upload tracks and analyze them, then click "Generate Plan" to create a mathematically perfect fusion timeline.
+                      </p>
+                    </div>
+                  )}
+                </div>
+
+                {/* Saved Mix Plans */}
+                {se.mixPlans.length > 0 && (
+                  <div className="glass-retro rounded-3xl p-4 flex-shrink-0 max-h-40 overflow-y-auto">
+                    <h3 className="font-retro text-[10px] font-black uppercase tracking-widest text-neon/cyan-400 mb-2">
+                      Saved Mix Plans
+                    </h3>
+                    <div className="space-y-1">
+                      {se.mixPlans.map((plan) => (
+                        <div
+                          key={plan.id}
+                          className="flex items-center justify-between p-2 rounded-xl bg-slate-900/50 border border-neon/retro/scanline"
+                        >
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs text-neon/cyan-300 font-mono">{plan.name || 'Untitled'}</span>
+                            <span className="text-[10px] text-slate-500">{plan.segments?.length || 0} segs</span>
+                          </div>
+                          <button
+                            onClick={() => se.playMix(plan)}
+                            className="px-2 py-1 rounded-lg bg-neon/cyan-500/20 text-neon/cyan-300 text-[9px] font-retro font-black uppercase hover:bg-neon/cyan-500/30 transition-all"
+                          >
+                            Play
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
             </motion.div>
           )}
 

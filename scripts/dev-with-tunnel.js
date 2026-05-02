@@ -1,14 +1,12 @@
 import { createServer } from 'vite';
 import localtunnel from 'localtunnel';
-import react from '@vitejs/plugin-react';
 
 async function start() {
   console.log('\n🚀 Starting Vanguard DJ with HTTPS tunnel...\n');
 
   // Start Vite dev server on HTTP (localtunnel will provide HTTPS)
   const server = await createServer({
-    configFile: false,
-    plugins: [react()],
+    configFile: './vite.config.js',
     server: {
       port: 5173,
       https: false,
@@ -61,4 +59,3 @@ start().catch((err) => {
   console.error('Failed to start:', err);
   process.exit(1);
 });
-
