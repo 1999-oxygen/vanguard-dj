@@ -1,0 +1,32 @@
+version: '3.8'
+
+services:
+  vanguard-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: vanguard-neural-core
+    ports:
+      - "8000:8000"
+    volumes:
+      # Mount data directory for persistent SQLite database
+      - ./data:/app/data
+      # Mount upload temp directory
+      - ./uploads:/app/uploads
+    environment:
+      - PYTHONUNBUFFERED=1
+    restart: unless-stopped
+
+  # Optional: Uncomment to run the frontend in Docker too
+  # vanguard-web:
+  #   build:
+  #     context: .
+  #     dockerfile: Dockerfile.web
+  #   container_name: vanguard-web
+  #   ports:
+  #     - "5173:5173"
+  #   depends_on:
+  #     - vanguard-api
+  #   environment:
+  #     - VITE_VANGUARD_API_URL=http://localhost:8000
+
