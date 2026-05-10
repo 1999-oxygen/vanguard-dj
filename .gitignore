@@ -87,3 +87,16 @@ dist/
 *.swp
 *.swo
 .vercel
+
+# Vanguard DJ Data
+data/segments/
+data/stems/
+data/mixes/
+data/vanguard.db
+data/vanguard.db-journal
+uploads/
+*.wav
+*.mp3
+*.flac
+*.m4a
+*.ogg

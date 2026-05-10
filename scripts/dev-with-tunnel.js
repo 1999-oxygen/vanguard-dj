@@ -23,19 +23,11 @@ async function start() {
   // Start localtunnel AFTER server is ready
   const tunnel = await localtunnel({ port: 5173 });
   const tunnelUrl = tunnel.url;
-  const redirectUri = `${tunnelUrl}/callback`;
 
   console.log('\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
   console.log('🌐 Tunnel URL:', tunnelUrl);
-  console.log('🔗 Spotify Redirect URI:', redirectUri);
   console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-  console.log('\n⚠️  IMPORTANT: Add this Redirect URI to your Spotify app:');
-  console.log('   → https://developer.spotify.com/dashboard');
-  console.log('   → Edit Settings → Redirect URIs → Add → Save');
   console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
-
-  // Set env var for Vite (for any runtime usage)
-  process.env.VITE_SPOTIFY_REDIRECT_URI = redirectUri;
 
   console.log('✅ Public tunnel at', tunnelUrl);
   console.log('\nPress Ctrl+C to stop\n');

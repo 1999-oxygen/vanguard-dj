@@ -22,7 +22,7 @@ export const useVanguard = (initialFiles) => {
   }, []);
 
   const askGemini = async (prompt) => {
-    const apiKey = process.env.VITE_GEMINI_API_KEY || ""; // Use Vite env
+    const apiKey = import.meta.env.VITE_GEMINI_API_KEY || "";
     const systemPrompt = "You are the Vanguard V3 AI Production Assistant. Respond in short, technical DJ jargon.";
     
     try {

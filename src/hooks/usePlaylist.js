@@ -6,10 +6,6 @@ const STORAGE_KEY = 'vanguard-playlist';
 /**
  * @fileoverview usePlaylist Hook
  * Manages the track library, localStorage persistence, and track import.
- * Supports three import paths:
- *   1. Local file → metadata only (analysis done upstream)
- *   2. Spotify track with previewUrl → fetch → decode → real analysis
- *   3. Spotify track without previewUrl → metadata only (mock analysis)
  */
 export const usePlaylist = () => {
   const [tracks, setTracks] = useState([]);
@@ -92,33 +88,13 @@ export const usePlaylist = () => {
     }
   }, [tracks, saveTracks]);
 
-  /**
-   * Add a Spotify track.
-   * @param {Object} input - Spotify track object.
-   * @param {boolean} hasPreview - Whether preview URL is available.
-   */
-  const addSpotifyTrack = useCallback((input, hasPreview = false) => {
-    const trackData = {
-      id: input.id || `spotify_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
-      name: input.name,
-      artist: input.artist,
-      spotifyUrl: input.spotifyUrl,
-      previewUrl: input.previewUrl,
-      duration: input.duration,
-      bpm: input.bpm || 128 + Math.random() * 12,
-      key: input.key || ['1A', '2A', '11B', '9A'][Math.floor(Math.random() * 4)],
-      mood: input.mood || ['Dark', 'Bright', 'Minimal', 'Energetic'][Math.floor(Math.random() * 4)],
-      source: hasPreview ? 'spotify-preview' : 'spotify',
-      hasAnalysis: hasPreview,
-      needsLocalFile: !hasPreview,
-      uploadedAt: new Date().toISOString(),
-    };
-    const updated = [...tracks, trackData];
-    saveTracks(updated);
-    return trackData;
-  }, [tracks, saveTracks]);
-
   const removeTrack = useCallback((id) => {
+    const victim = tracks.find((t) => t.id === id);
+    if (victim?.file && String(victim.file).startsWith('blob:')) {
+      try {
+        URL.revokeObjectURL(victim.file);
+      } catch { /* ignore */ }
+    }
     const filtered = tracks.filter((t) => t.id !== id);
     saveTracks(filtered);
   }, [tracks, saveTracks]);
@@ -143,7 +119,6 @@ export const usePlaylist = () => {
     loading,
     addTrack,
     addFile,
-    addSpotifyTrack,
     removeTrack,
     updateTrack,
     searchTracks,

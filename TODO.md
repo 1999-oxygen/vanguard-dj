@@ -1,42 +1,49 @@
-# Vanguard Neural Analysis Core + Universal Grade Integration - COMPLETE ✅
+# Vanguard DJ New Backend TODO (Node.js/Express)
 
-## Phase 1: Python Backend (Original VanguardAnalyzer)
-- [x] `api/requirements.txt` — librosa, numpy, sqlalchemy, fastapi, uvicorn, python-multipart
-- [x] `api/analyzer.py` — VanguardAnalyzer class with librosa beat/key/RMS/atom analysis
-- [x] `api/main.py` — FastAPI server with /analyze, /analyze_batch, /health
-- [x] `api/run.py` — CLI entry point
+## Approved Plan Progress
 
-## Phase 2: Universal/Computational Grade Engine (4 Modules)
-- [x] `api/db/schema.py` — Quantum Database (SQLAlchemy) with Track + Atom models
-- [x] `api/core/slicer.py` — Zero-Crossing Slicer (physics-based amplitude-0.0 cutting)
-- [x] `api/core/universal_core.py` — Deep Musicology Core (librosa metrics, multi-derivation slicing)
-- [x] `api/core/fusion_engine.py` — Fusion Query Engine (SQL-queryable atom retrieval)
-- [x] `api/main.py` — Added /universal/analyze and /fusion/query endpoints
+### 1. Delete pre-existing Python backend (api/)
+- [x] rm -rf api/ ✅
 
-## Phase 3: Frontend API Bridges
-- [x] `src/services/vanguardApi.js` — Standard DNA analysis client with fallback
-- [x] `src/services/universalApi.js` — Universal Core + Fusion Query client
-- [x] `src/hooks/useTrackAnalyzer.js` — Backend-first with client-side fallback
-- [x] `src/hooks/useSegmentEngine.js` — DNA-aware segmentation
+### 2. Update dependencies and scripts
+- [x] Edit package.json: add express, cors, multer, sqlite3, fluent-ffmpeg, @ffmpeg-installer/ffmpeg; update scripts.dev:api to concurrently nodemon server/index.js vite ✅
 
-## Phase 4: UI Components
-- [x] `src/components/DnaBadge.jsx` — Cyberpunk DNA display
-- [x] `src/components/AtomDeck.jsx` — Atom Matrix Trigger with energy bars, active glow
-- [x] `src/components/SegmentVisualizer.jsx` — Per-segment preview buttons
+Current step: 3/7
 
-## Phase 5: Ghost-Tail Playback Engine
-- [x] `src/hooks/useAtomPlayer.js` — 10ms micro-fade anti-click envelopes
 
-## Phase 6: Dev Experience
-- [x] `vite.config.js` — Dev proxy for /api
-- [x] `package.json` — dev:api script with concurrently
-- [x] `scripts/analyze_track.py` — Standalone CLI runner
-- [x] `README.md` — Full documentation including Universal Architecture
+### 2. Update dependencies and scripts
+- [ ] Edit package.json: add express, cors, multer, sqlite3, fluent-ffmpeg, @ffmpeg-installer/ffmpeg; update scripts.dev:api to concurrently node server/index.js vite
 
-## Verification
-- [x] `npm run build` passes (8.82s, 0 errors, 390KB JS bundle)
+### 3. Create server/ directory and core files
+- [x] server/index.js (Express app with all endpoints: /health, /analyze, /analyze_batch, /universal/analyze, /fusion/query) ✅
+- [x] server/db.js (SQLite setup, Track/Atom schemas, mock data) ✅
+- [x] server/analyze.js (audio analysis using fluent-ffmpeg: BPM, energy, DNA sim) ✅
 
-## Environment Note
-- Python 3.8 system pip (19.2.3) is too old for modern packages. User needs `pip install --upgrade pip` or use Python 3.10+ for `librosa`/`sqlalchemy` installation.
+### 4. Update infrastructure
+- [x] docker-compose.yml: Node service replacing Python ✅
+- [x] Dockerfile.node created ✅
 
-## Done ✅
+### 5. Install and test
+- [ ] npm install
+- [ ] npm run dev:api (test endpoints)
+
+Current step: 5/7
+
+### 4. Update infrastructure
+- [ ] docker-compose.yml: Node service replacing Python
+- [ ] .dockerignore, new Dockerfile for server if needed
+
+### 5. Frontend adjustments (minimal)
+- [ ] vite.config.js: confirm proxy
+- [ ] Remove Python refs from docs/scripts
+
+### 6. Install and test
+- [ ] npm install
+- [ ] npm run dev (test health/analyze)
+- [ ] docker-compose up
+
+### 7. Deploy updates
+- [ ] Update README.md, DEPLOY.md for Node backend
+
+Current step: 1/7
+

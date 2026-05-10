@@ -11,6 +11,38 @@
 
 import { camelotDistance } from './harmonicUtils.js';
 
+const DEFAULT_FEATURES = {
+  duration: 1,
+  bpm: 128,
+  key: 'Unknown',
+  avgEnergy: 0.5,
+  maxEnergy: 0.5,
+  energyVariance: 0.1,
+  energyStart: 0.05,
+  energyEnd: 0.05,
+  spectralFlux: 0.3,
+  zeroCrossingRate: 0.05,
+  spectralRolloff: 0.4,
+  dynamicRange: 0.5,
+  vocalDensity: 0.3,
+  isVocalHeavy: false,
+  isPercussive: true,
+  isBright: false,
+};
+
+export const coerceSegmentFeatures = (seg) => {
+  const f = seg?.features;
+  if (!f || typeof f !== 'object') {
+    return { ...DEFAULT_FEATURES, duration: seg?.duration || 1, bpm: 128 };
+  }
+  return {
+    ...DEFAULT_FEATURES,
+    ...f,
+    bpm: Number(f.bpm) || DEFAULT_FEATURES.bpm,
+    avgEnergy: Number(f.avgEnergy) >= 0 ? Number(f.avgEnergy) : DEFAULT_FEATURES.avgEnergy,
+  };
+};
+
 /**
  * Default feature weights for similarity calculation.
  * These can be adjusted per mix style (e.g., energy ramp vs. chill blend).
@@ -49,8 +81,8 @@ export const TRANSITION_TYPES = {
  */
 export const computeSegmentCompatibility = (segA, segB, weights = {}) => {
   const w = { ...DEFAULT_WEIGHTS, ...weights };
-  const fA = segA.features;
-  const fB = segB.features;
+  const fA = coerceSegmentFeatures(segA);
+  const fB = coerceSegmentFeatures(segB);
 
   // Energy similarity (0-1, 1 = identical)
   const energyDiff = Math.abs(fA.avgEnergy - fB.avgEnergy);
@@ -268,7 +300,7 @@ export const findStemSwapCandidates = (baseSegment, pool, targetStem) => {
 
   return pool
     .filter(seg => seg.trackId !== baseSegment.trackId) // Different track
-    .filter(seg => criteria(seg.features))
+    .filter(seg => criteria(coerceSegmentFeatures(seg)))
     .map(seg => ({
       segment: seg,
       compat: computeSegmentCompatibility(baseSegment, seg, {

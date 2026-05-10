@@ -6,6 +6,23 @@
 
 const API_BASE_URL = import.meta.env.VITE_VANGUARD_API_URL || 'http://localhost:8000';
 
+const forceSecureForHttpsPage = () => {
+  // Prevent mixed-content blocking when UI is served over HTTPS.
+  // If page is https:, but API base is http:, rewrite to https: (common when using a reverse proxy).
+  if (typeof window === 'undefined') return API_BASE_URL;
+  try {
+    const loc = window.location;
+    if (loc.protocol === 'https:' && API_BASE_URL.startsWith('http://')) {
+      return API_BASE_URL.replace(/^http:/, 'https:');
+    }
+  } catch {
+    // ignore
+  }
+  return API_BASE_URL;
+};
+
+const getApiBaseUrl = () => forceSecureForHttpsPage();
+
 /**
  * Upload an audio file to the Vanguard backend for DNA analysis.
  * @param {File} file - Audio file from input/drop.
@@ -19,7 +36,7 @@ export const analyzeTrack = async (file) => {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 30000); // 30s timeout
 
-    const response = await fetch(`${API_BASE_URL}/analyze`, {
+    const response = await fetch(`${getApiBaseUrl()}/analyze`, {
       method: 'POST',
       body: formData,
       signal: controller.signal,

@@ -10,8 +10,10 @@
  *   - mixPlans: { id, name, segments, transitions, createdAt }
  */
 
+import { normalizeSegmentRecord, enrichSegmentForStorage } from './segmentMetadata.js';
+
 const DB_NAME = 'VanguardSegmentDB';
-const DB_VERSION = 1;
+export const DB_VERSION = 2;
 
 const STORES = {
   SEGMENTS: 'segments',
@@ -44,11 +46,22 @@ export const openDatabase = () => {
       const db = event.target.result;
 
       // Segments store (metadata only)
+      let segmentStore;
       if (!db.objectStoreNames.contains(STORES.SEGMENTS)) {
-        const segmentStore = db.createObjectStore(STORES.SEGMENTS, { keyPath: 'id' });
+        segmentStore = db.createObjectStore(STORES.SEGMENTS, { keyPath: 'id' });
         segmentStore.createIndex('trackId', 'trackId', { unique: false });
         segmentStore.createIndex('bpm', 'features.bpm', { unique: false });
         segmentStore.createIndex('energy', 'features.avgEnergy', { unique: false });
+        segmentStore.createIndex('paradigmKey', 'paradigmKey', { unique: false });
+        segmentStore.createIndex('contentHash', 'contentHash', { unique: false });
+      } else {
+        segmentStore = event.target.transaction.objectStore(STORES.SEGMENTS);
+        if (!segmentStore.indexNames.contains('paradigmKey')) {
+          segmentStore.createIndex('paradigmKey', 'paradigmKey', { unique: false });
+        }
+        if (!segmentStore.indexNames.contains('contentHash')) {
+          segmentStore.createIndex('contentHash', 'contentHash', { unique: false });
+        }
       }
 
       // Buffers store (audio data as ArrayBuffers)
@@ -71,19 +84,31 @@ export const openDatabase = () => {
  * @param {AudioBuffer} audioBuffer - The decoded audio buffer.
  * @returns {Promise<string>} The stored segment ID.
  */
-export const storeSegment = async (segment, audioBuffer) => {
-  const db = await openDatabase();
+export const storeSegment = async (segment, audioBuffer, trackMetadata = null, segmentIndex = 0, segmentSource = 'chop') => {
+  await openDatabase();
   const bufferKey = `buf_${segment.id}`;
 
-  // Convert AudioBuffer to raw ArrayBuffer for storage
-  const rawBuffer = audioBufferToArrayBuffer(audioBuffer);
+  // Convert AudioBuffer to a reconstructable representation for storage.
+  // NOTE: We store PCM channel data + metadata (sampleRate, length, channels).
+  // decodeAudioData() is for encoded audio (mp3/wav), not raw PCM.
+  const storedPcm = audioBufferToStoredPcm(audioBuffer);
 
   // Store buffer
-  await putInStore(STORES.BUFFERS, { key: bufferKey, buffer: rawBuffer, sampleRate: audioBuffer.sampleRate });
+  await putInStore(STORES.BUFFERS, { key: bufferKey, ...storedPcm });
+
+  const meta = trackMetadata || {
+    id: segment.trackId,
+    name: segment.trackName,
+    bpm: segment.features?.bpm,
+    key: segment.features?.key,
+    mood: segment.moodHint,
+  };
+
+  const enriched = enrichSegmentForStorage(segment, meta, segmentIndex, segmentSource);
 
   // Store metadata (without the actual buffer to keep it lightweight)
   const metadata = {
-    ...segment,
+    ...enriched,
     bufferKey,
     hasBuffer: true,
   };
@@ -100,7 +125,13 @@ export const storeSegment = async (segment, audioBuffer) => {
  * @returns {Promise<Object|null>}
  */
 export const getSegment = async (segmentId) => {
-  return getFromStore(STORES.SEGMENTS, segmentId);
+  const row = await getFromStore(STORES.SEGMENTS, segmentId);
+  if (!row) return null;
+  try {
+    return normalizeSegmentRecord(row);
+  } catch {
+    return null;
+  }
 };
 
 /**
@@ -116,8 +147,8 @@ export const getSegmentBuffer = async (segmentId, audioContext) => {
   const stored = await getFromStore(STORES.BUFFERS, segment.bufferKey);
   if (!stored || !stored.buffer) return null;
 
-  // Reconstruct AudioBuffer from stored ArrayBuffer
-  return await audioContext.decodeAudioData(stored.buffer.slice(0));
+  // Reconstruct AudioBuffer from stored PCM.
+  return storedPcmToAudioBuffer(stored, audioContext);
 };
 
 /**
@@ -131,7 +162,19 @@ export const getAllSegments = async () => {
     const store = transaction.objectStore(STORES.SEGMENTS);
     const request = store.getAll();
 
-    request.onsuccess = () => resolve(request.result);
+    request.onsuccess = () => {
+      const rows = request.result || [];
+      const normalized = rows
+        .map((r) => {
+          try {
+            return normalizeSegmentRecord(r);
+          } catch {
+            return null;
+          }
+        })
+        .filter(Boolean);
+      resolve(normalized);
+    };
     request.onerror = () => reject(request.error);
   });
 };
@@ -149,7 +192,10 @@ export const getSegmentsByTrack = async (trackId) => {
     const index = store.index('trackId');
     const request = index.getAll(trackId);
 
-    request.onsuccess = () => resolve(request.result);
+    request.onsuccess = () => {
+      const rows = request.result || [];
+      resolve(rows.map(normalizeSegmentRecord).filter(Boolean));
+    };
     request.onerror = () => reject(request.error);
   });
 };
@@ -210,65 +256,125 @@ export const getAllMixPlans = async () => {
 
 const putInStore = (storeName, data) => {
   return new Promise((resolve, reject) => {
-    const transaction = dbInstance.transaction(storeName, 'readwrite');
-    const store = transaction.objectStore(storeName);
-    const request = store.put(data);
+    openDatabase()
+      .then(() => {
+        const transaction = dbInstance.transaction(storeName, 'readwrite');
+        const store = transaction.objectStore(storeName);
+        const request = store.put(data);
 
-    request.onsuccess = () => resolve(request.result);
-    request.onerror = () => reject(request.error);
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+      })
+      .catch(reject);
   });
 };
 
 const getFromStore = (storeName, key) => {
   return new Promise((resolve, reject) => {
-    const transaction = dbInstance.transaction(storeName, 'readonly');
-    const store = transaction.objectStore(storeName);
-    const request = store.get(key);
+    openDatabase()
+      .then(() => {
+        const transaction = dbInstance.transaction(storeName, 'readonly');
+        const store = transaction.objectStore(storeName);
+        const request = store.get(key);
 
-    request.onsuccess = () => resolve(request.result || null);
-    request.onerror = () => reject(request.error);
+        request.onsuccess = () => resolve(request.result || null);
+        request.onerror = () => reject(request.error);
+      })
+      .catch(reject);
   });
 };
 
 const deleteFromStore = (storeName, key) => {
   return new Promise((resolve, reject) => {
-    const transaction = dbInstance.transaction(storeName, 'readwrite');
-    const store = transaction.objectStore(storeName);
-    const request = store.delete(key);
+    openDatabase()
+      .then(() => {
+        const transaction = dbInstance.transaction(storeName, 'readwrite');
+        const store = transaction.objectStore(storeName);
+        const request = store.delete(key);
 
-    request.onsuccess = () => resolve();
-    request.onerror = () => reject(request.error);
+        request.onsuccess = () => resolve();
+        request.onerror = () => reject(request.error);
+      })
+      .catch(reject);
   });
 };
 
 const clearStore = (storeName) => {
   return new Promise((resolve, reject) => {
-    const transaction = dbInstance.transaction(storeName, 'readwrite');
-    const store = transaction.objectStore(storeName);
-    const request = store.clear();
+    openDatabase()
+      .then(() => {
+        const transaction = dbInstance.transaction(storeName, 'readwrite');
+        const store = transaction.objectStore(storeName);
+        const request = store.clear();
 
-    request.onsuccess = () => resolve();
-    request.onerror = () => reject(request.error);
+        request.onsuccess = () => resolve();
+        request.onerror = () => reject(request.error);
+      })
+      .catch(reject);
   });
 };
 
 /**
- * Convert AudioBuffer to a serializable ArrayBuffer (interleaved stereo).
- * @param {AudioBuffer} audioBuffer
- * @returns {ArrayBuffer}
+ * Convert AudioBuffer to a reconstructable, IndexedDB-friendly PCM payload.
  */
-const audioBufferToArrayBuffer = (audioBuffer) => {
+const audioBufferToStoredPcm = (audioBuffer) => {
   const numChannels = audioBuffer.numberOfChannels;
   const length = audioBuffer.length;
-  const interleaved = new Float32Array(length * numChannels);
+  const channels = Array.from({ length: numChannels }, (_, ch) => {
+    // Copy to avoid retaining references to AudioBuffer-backed memory
+    const data = audioBuffer.getChannelData(ch);
+    const copy = new Float32Array(data.length);
+    copy.set(data);
+    return copy.buffer;
+  });
 
-  for (let ch = 0; ch < numChannels; ch++) {
-    const channelData = audioBuffer.getChannelData(ch);
-    for (let i = 0; i < length; i++) {
-      interleaved[i * numChannels + ch] = channelData[i];
+  return {
+    buffer: channels, // Array<ArrayBuffer>, one per channel
+    sampleRate: audioBuffer.sampleRate,
+    length,
+    numberOfChannels: numChannels,
+    format: 'pcm-f32-planar-v1',
+  };
+};
+
+/**
+ * Reconstruct an AudioBuffer from stored PCM (supports legacy interleaved payloads best-effort).
+ */
+const storedPcmToAudioBuffer = (stored, audioContext) => {
+  const sampleRate = stored.sampleRate || audioContext.sampleRate;
+
+  // New format: planar per-channel float32 buffers
+  if (Array.isArray(stored.buffer) && stored.format === 'pcm-f32-planar-v1') {
+    const numChannels = stored.numberOfChannels || stored.buffer.length || 1;
+    const length = stored.length || (stored.buffer[0] ? new Float32Array(stored.buffer[0]).length : 0);
+    if (!length) return null;
+
+    const audioBuffer = audioContext.createBuffer(numChannels, length, sampleRate);
+    for (let ch = 0; ch < numChannels; ch++) {
+      const channelFloats = new Float32Array(stored.buffer[ch]);
+      audioBuffer.getChannelData(ch).set(channelFloats.subarray(0, length));
     }
+    return audioBuffer;
   }
 
-  return interleaved.buffer;
+  // Legacy: a single interleaved Float32Array buffer (best-effort).
+  // Older versions stored { buffer: ArrayBuffer } where data was interleaved [L,R,L,R,...]
+  if (stored.buffer && stored.buffer instanceof ArrayBuffer) {
+    const floats = new Float32Array(stored.buffer);
+    const numChannels = stored.numberOfChannels || 2;
+    const length = stored.length || Math.floor(floats.length / numChannels);
+    if (!length) return null;
+
+    const audioBuffer = audioContext.createBuffer(numChannels, length, sampleRate);
+    for (let ch = 0; ch < numChannels; ch++) {
+      const out = audioBuffer.getChannelData(ch);
+      for (let i = 0; i < length; i++) {
+        out[i] = floats[i * numChannels + ch] || 0;
+      }
+    }
+    return audioBuffer;
+  }
+
+  return null;
 };
 

@@ -11,7 +11,7 @@
  *   - STEM_FUSION: Alternates stem-swapped segments (drums from A + melody from B)
  */
 
-import { computeSegmentCompatibility, buildSegmentGraph, TRANSITION_TYPES } from './SegmentMatcher.js';
+import { computeSegmentCompatibility, buildSegmentGraph, coerceSegmentFeatures } from './SegmentMatcher.js';
 
 export const MIX_STYLES = {
   RAMP_UP: 'ramp_up',
@@ -105,20 +105,20 @@ const selectStartSegment = (segments, style) => {
     case MIX_STYLES.RAMP_UP:
       // Start with low energy
       return segments.reduce((lowest, seg) =>
-        seg.features.avgEnergy < lowest.features.avgEnergy ? seg : lowest
+        coerceSegmentFeatures(seg).avgEnergy < coerceSegmentFeatures(lowest).avgEnergy ? seg : lowest
       );
     case MIX_STYLES.RAMP_DOWN:
       // Start with high energy
       return segments.reduce((highest, seg) =>
-        seg.features.avgEnergy > highest.features.avgEnergy ? seg : highest
+        coerceSegmentFeatures(seg).avgEnergy > coerceSegmentFeatures(highest).avgEnergy ? seg : highest
       );
     case MIX_STYLES.WAVE:
       // Start at medium energy
-      const sorted = [...segments].sort((a, b) => a.features.avgEnergy - b.features.avgEnergy);
+      const sorted = [...segments].sort((a, b) => coerceSegmentFeatures(a).avgEnergy - coerceSegmentFeatures(b).avgEnergy);
       return sorted[Math.floor(sorted.length / 2)];
     case MIX_STYLES.STEM_FUSION:
       // Start with a percussive segment
-      return segments.find(s => s.features.isPercussive) || segments[0];
+      return segments.find(s => coerceSegmentFeatures(s).isPercussive) || segments[0];
     default:
       // Random start
       return segments[Math.floor(Math.random() * segments.length)];
@@ -130,20 +130,20 @@ const selectStartSegment = (segments, style) => {
  */
 const filterByStyle = (neighbors, mixSegments, style, allowStemSwaps) => {
   const current = mixSegments[mixSegments.length - 1];
-  const currentEnergy = current.features.avgEnergy;
+  const currentEnergy = coerceSegmentFeatures(current).avgEnergy;
 
   switch (style) {
     case MIX_STYLES.RAMP_UP:
       // Prefer higher energy than current
       return neighbors.filter(n =>
-        n.segment.features.avgEnergy >= currentEnergy - 0.1 &&
+        coerceSegmentFeatures(n.segment).avgEnergy >= currentEnergy - 0.1 &&
         n.score > 0.4
       );
 
     case MIX_STYLES.RAMP_DOWN:
       // Prefer lower energy than current
       return neighbors.filter(n =>
-        n.segment.features.avgEnergy <= currentEnergy + 0.1 &&
+        coerceSegmentFeatures(n.segment).avgEnergy <= currentEnergy + 0.1 &&
         n.score > 0.4
       );
 
@@ -156,7 +156,7 @@ const filterByStyle = (neighbors, mixSegments, style, allowStemSwaps) => {
       return neighbors
         .map(n => ({
           ...n,
-          energyMatch: 1 - Math.abs(n.segment.features.avgEnergy - targetEnergy),
+          energyMatch: 1 - Math.abs(coerceSegmentFeatures(n.segment).avgEnergy - targetEnergy),
         }))
         .sort((a, b) => b.energyMatch - a.energyMatch)
         .slice(0, 5);

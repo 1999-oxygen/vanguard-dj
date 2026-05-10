@@ -5,6 +5,21 @@
 
 const API_BASE_URL = import.meta.env.VITE_VANGUARD_API_URL || 'http://localhost:8000';
 
+const forceSecureForHttpsPage = () => {
+  if (typeof window === 'undefined') return API_BASE_URL;
+  try {
+    const loc = window.location;
+    if (loc.protocol === 'https:' && API_BASE_URL.startsWith('http://')) {
+      return API_BASE_URL.replace(/^http:/, 'https:');
+    }
+  } catch {
+    // ignore
+  }
+  return API_BASE_URL;
+};
+
+const getApiBaseUrl = () => forceSecureForHttpsPage();
+
 /**
  * Run Universal/Computational Grade analysis on an audio file.
  * This runs the Deep Musicology Core with zero-crossing slicing

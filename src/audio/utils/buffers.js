@@ -9,7 +9,7 @@
  * Fetch an audio file from a URL and decode it into an AudioBuffer.
  * Handles CORS, network errors, and decode failures.
  *
- * @param {string} url - The audio file URL (e.g. Spotify preview URL).
+ * @param {string} url - The audio file URL.
  * @param {AudioContext} audioContext - The shared AudioContext instance.
  * @returns {Promise<AudioBuffer>} The decoded audio buffer.
  */

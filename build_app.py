@@ -15,7 +15,6 @@ import { useAudioEngine } from './hooks/useAudioEngine.js';
 import usePlaylist from './hooks/usePlaylist.js';
 import useAutoMix from './hooks/useAutoMix.js';
 import { useSegmentEngine } from './hooks/useSegmentEngine.js';
-import SpotifySearch from './components/SpotifySearch.jsx';
 import FileUpload from './components/FileUpload.jsx';
 import { AudioContextManager } from './audio/index.js';
 
@@ -132,7 +131,6 @@ export default function App() {
         <aside className={`w-full md:w-80 flex-shrink-0 glass-retro rounded-3xl p-6 md:relative fixed md:static z-30 md:z-auto ${isDrawerOpen ? 'hidden md:block' : 'block'}`}>
           <div className="space-y-4">
             <LibraryPanel search={search} setSearch={setSearch} filteredLibrary={filteredLibrary} currentTrack={currentTrack} onTrackSelect={handleTrackSelect} />
-            <SpotifySearch onAddTrack={t => pl.addTrack(t, true)} />
           </div>
         </aside>
 

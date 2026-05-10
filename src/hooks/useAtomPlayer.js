@@ -19,7 +19,8 @@ export const useAtomPlayer = (audioBuffer, audioUrl) => {
     const initEngine = async () => {
       // Reuse existing context or create new one
       if (!audioContextRef.current) {
-        audioContextRef.current = new (window.AudioContext || window.webkitAudioContext)();
+        const Ctor = window.AudioContext || window.webkitAudioContext;
+        audioContextRef.current = Ctor ? new Ctor() : null;
       }
 
       // If we already have an AudioBuffer, use it directly

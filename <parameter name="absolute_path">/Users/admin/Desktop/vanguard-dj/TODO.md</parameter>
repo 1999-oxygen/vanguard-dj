@@ -1,0 +1,6 @@
+<parameter name="content"># V10 Reactor Integration
+- [x] 1. Create .env.local with backend URL
+- [ ] 2. Update tailwind.config.js for V10 theme
+- [ ] 3. Replace src/App.jsx with V10 reactor + existing functionality
+- [ ] 4. Test integration (hot-reload, backend analysis, audio)
+- [ ] 5. Complete</parameter>

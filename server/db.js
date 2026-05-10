@@ -106,7 +106,6 @@ await db.run(`
     FOREIGN KEY (track_id) REFERENCES tracks (id)
   )
 `);
-
 await db.run(`CREATE INDEX IF NOT EXISTS idx_segments_v2_bpm ON segments_v2(bpm)`);
 await db.run(`CREATE INDEX IF NOT EXISTS idx_segments_v2_key ON segments_v2(camelot_key)`);
 await db.run(`CREATE INDEX IF NOT EXISTS idx_segments_v2_energy ON segments_v2(energy)`);

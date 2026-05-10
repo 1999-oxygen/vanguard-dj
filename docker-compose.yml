@@ -4,8 +4,8 @@ services:
   vanguard-api:
     build:
       context: .
-      dockerfile: Dockerfile
-    container_name: vanguard-neural-core
+      dockerfile: Dockerfile.node
+    container_name: vanguard-node-backend
     ports:
       - "8000:8000"
     volumes:
@@ -14,7 +14,7 @@ services:
       # Mount upload temp directory
       - ./uploads:/app/uploads
     environment:
-      - PYTHONUNBUFFERED=1
+      - NODE_ENV=production
     restart: unless-stopped
 
   # Optional: Uncomment to run the frontend in Docker too

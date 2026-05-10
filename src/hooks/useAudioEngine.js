@@ -161,7 +161,7 @@ export const useAudioEngine = (addLog) => {
     const engine = engineRef.current;
     if (!engine || !engine.isInitialized) return;
     await engine.resume();
-    engine.decks[deckId].loadBuffer(audioBuffer, metadata);
+    engine.loadTrackToDeck(deckId, audioBuffer, metadata);
     addLog(`Loaded segment to Deck ${deckId}`, 'system');
   }, [addLog]);
 

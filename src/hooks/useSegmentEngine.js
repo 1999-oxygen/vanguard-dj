@@ -32,10 +32,15 @@ export const useSegmentEngine = (audioEngine, addLog) => {
   const [mixPlans, setMixPlans] = useState([]);
   const [activeMix, setActiveMix] = useState(null);
   const [activeSegmentIndex, setActiveSegmentIndex] = useState(0);
+  const [mixPlaybackActive, setMixPlaybackActive] = useState(false);
 
   const segmentQueueRef = useRef([]);
   const isPlayingRef = useRef(false);
   const graphRef = useRef(null);
+  /** @type {React.MutableRefObject<ReturnType<typeof setTimeout>|null>} */
+  const segmentAdvanceTimerRef = useRef(null);
+  /** @type {React.MutableRefObject<object|null>} */
+  const playingPlanRef = useRef(null);
 
   // Load persisted segments on mount
   useEffect(() => {
@@ -89,7 +94,7 @@ export const useSegmentEngine = (audioEngine, addLog) => {
       // Store each segment
       for (let i = 0; i < trackSegments.length; i++) {
         const seg = trackSegments[i];
-        await storeSegment(seg, seg.buffer);
+        await storeSegment(seg, seg.buffer, trackMetadata, i, 'chop');
 
         setProcessProgress({
           current: i + 1,
@@ -140,8 +145,9 @@ export const useSegmentEngine = (audioEngine, addLog) => {
    * @param {Object} options
    */
   const generateMixPlan = useCallback(async (options = {}) => {
-    if (segments.length < 10) {
-      addLog('Need at least 10 segments to generate a mix. Upload more tracks!', 'warning');
+    const minPool = options.minPoolSize ?? 10;
+    if (segments.length < minPool) {
+      addLog(`Need at least ${minPool} segments to generate a mix. Upload more tracks!`, 'warning');
       return null;
     }
 
@@ -209,29 +215,21 @@ export const useSegmentEngine = (audioEngine, addLog) => {
    * Start playing a mix plan.
    * @param {Object} mixPlan
    */
-  const playMix = useCallback(async (mixPlan) => {
-    if (!audioEngine || !audioEngine.isInitialized) {
-      addLog('Audio engine not ready', 'error');
-      return;
+  const clearSegmentAdvanceTimer = useCallback(() => {
+    if (segmentAdvanceTimerRef.current != null) {
+      clearTimeout(segmentAdvanceTimerRef.current);
+      segmentAdvanceTimerRef.current = null;
     }
-
-    setActiveMix(mixPlan);
-    setActiveSegmentIndex(0);
-    isPlayingRef.current = true;
-
-    addLog(`Playing mix: ${mixPlan.name || 'Untitled'}`, 'system');
-
-    // Start with first segment
-    await playSegmentAtIndex(0);
-  }, [audioEngine, addLog]);
+  }, []);
 
   /**
-   * Play a specific segment from the active mix.
+   * Play a specific segment from a mix plan (pass plan explicitly — avoids stale React state).
    */
-  const playSegmentAtIndex = useCallback(async (index) => {
-    if (!activeMix || !audioEngine) return;
+  const playSegmentAtIndex = useCallback(async (mixPlan, index) => {
+    if (!mixPlan || !audioEngine?.isInitialized) return;
 
-    const segmentId = activeMix.segments[index];
+    const segmentIds = mixPlan.segments;
+    const segmentId = typeof segmentIds[index] === 'string' ? segmentIds[index] : segmentIds[index]?.id;
     if (!segmentId) return;
 
     const contextManager = AudioContextManager.getInstance();
@@ -242,52 +240,92 @@ export const useSegmentEngine = (audioEngine, addLog) => {
       const buffer = await getSegmentBuffer(segmentId, audioContext);
       if (!buffer) {
         addLog(`Segment ${segmentId} buffer not found`, 'error');
+        isPlayingRef.current = false;
+        playingPlanRef.current = null;
+        setMixPlaybackActive(false);
+        clearSegmentAdvanceTimer();
         return;
       }
 
-      // Load into active deck and play
-      const deck = audioEngine.getActiveDeck() || 'A';
-      audioEngine.loadTrackToDeck(deck, buffer, { name: `Segment ${index + 1}` });
-      audioEngine.playDeck(deck);
+      const deckToggle = index % 2 === 0 ? 'A' : 'B';
+      await audioEngine.loadTrackToDeck(deckToggle, buffer, { name: `Segment ${index + 1}` });
+      audioEngine.playDeck(deckToggle);
+      if (typeof audioEngine.setCrossfader === 'function') {
+        audioEngine.setCrossfader(deckToggle === 'A' ? -1 : 1);
+      }
 
       setActiveSegmentIndex(index);
 
+      clearSegmentAdvanceTimer();
+
       // Schedule next segment
-      if (index < activeMix.segments.length - 1) {
-        const transition = activeMix.transitions[index];
+      if (index < segmentIds.length - 1) {
+        const transition = mixPlan.transitions?.[index];
         const crossfadeTime = transition?.crossfadeDuration || 2.0;
         const segmentDuration = buffer.duration;
 
         // Start crossfade before segment ends
         const nextStartTime = (segmentDuration - crossfadeTime) * 1000;
 
-        setTimeout(() => {
-          if (isPlayingRef.current) {
-            playSegmentAtIndex(index + 1);
+        segmentAdvanceTimerRef.current = setTimeout(() => {
+          segmentAdvanceTimerRef.current = null;
+          if (isPlayingRef.current && playingPlanRef.current === mixPlan) {
+            playSegmentAtIndex(mixPlan, index + 1);
           }
         }, Math.max(0, nextStartTime));
       } else {
         addLog('Mix complete', 'system');
         isPlayingRef.current = false;
+        playingPlanRef.current = null;
+        setMixPlaybackActive(false);
       }
     } catch (error) {
       addLog(`Playback error: ${error.message}`, 'error');
+      isPlayingRef.current = false;
+      playingPlanRef.current = null;
+      setMixPlaybackActive(false);
+      clearSegmentAdvanceTimer();
     }
-  }, [activeMix, audioEngine, addLog]);
+  }, [audioEngine, addLog, clearSegmentAdvanceTimer]);
+
+  const playMix = useCallback(async (mixPlan) => {
+    if (!audioEngine || !audioEngine.isInitialized) {
+      addLog('Audio engine not ready', 'error');
+      return;
+    }
+
+    clearSegmentAdvanceTimer();
+    isPlayingRef.current = true;
+    setMixPlaybackActive(true);
+    playingPlanRef.current = mixPlan;
+    setActiveMix(mixPlan);
+    setActiveSegmentIndex(0);
+
+    addLog(`Playing mix: ${mixPlan.name || 'Untitled'}`, 'system');
+
+    await playSegmentAtIndex(mixPlan, 0);
+  }, [audioEngine, addLog, playSegmentAtIndex, clearSegmentAdvanceTimer]);
 
   /**
    * Stop the current mix.
    */
   const stopMix = useCallback(() => {
     isPlayingRef.current = false;
+    playingPlanRef.current = null;
+    clearSegmentAdvanceTimer();
     if (audioEngine) {
       audioEngine.stopDeck('A');
       audioEngine.stopDeck('B');
     }
     setActiveMix(null);
     setActiveSegmentIndex(0);
+    setMixPlaybackActive(false);
     addLog('Mix stopped', 'system');
-  }, [audioEngine, addLog]);
+  }, [audioEngine, addLog, clearSegmentAdvanceTimer]);
+
+  useEffect(() => () => {
+    clearSegmentAdvanceTimer();
+  }, [clearSegmentAdvanceTimer]);
 
   /**
    * Find compatible segments for a given segment (for manual exploration).
@@ -385,7 +423,7 @@ export const useSegmentEngine = (audioEngine, addLog) => {
         });
 
         // Store in IndexedDB
-        await storeSegment(trackSegments[i], segmentBuffer);
+        await storeSegment(trackSegments[i], segmentBuffer, trackMetadata, i, 'dna');
 
         setProcessProgress({
           current: i + 1,
@@ -433,6 +471,7 @@ export const useSegmentEngine = (audioEngine, addLog) => {
     mixPlans,
     activeMix,
     activeSegmentIndex,
+    mixPlaybackActive,
 
     // Actions
     processTrack,
