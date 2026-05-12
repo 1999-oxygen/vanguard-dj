@@ -40,7 +40,7 @@ class IntelligentMixEngine {
     const {
       targetDuration = 900, // 15 minutes default for longer mixes
       minSegments = 50,
-      maxSegments = 200, // Increased from 50 to allow longer mixes
+      maxSegments = null, // no hard cap — target duration drives the length
       energyProfile = 'narrative', // 'narrative', 'wave', 'build', 'steady', 'random'
       allowKeyChanges = true,
       maxBpmDiff = 6,

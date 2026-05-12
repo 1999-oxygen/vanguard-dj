@@ -24,7 +24,7 @@ export default function VanguardDJStudio() {
     formData.append('file', file);
 
     try {
-      const response = await fetch('http://localhost:8000/tracks/upload', {
+      const response = await fetch('/tracks/upload', {
         method: 'POST',
         body: formData
       });
@@ -50,7 +50,7 @@ export default function VanguardDJStudio() {
   const processTrack = async (trackId) => {
     setProcessing(true);
     try {
-      const response = await fetch(`http://localhost:8000/tracks/${trackId}/process`, {
+      const response = await fetch(`/tracks/${trackId}/process`, {
         method: 'POST'
       });
 

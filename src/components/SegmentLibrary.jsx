@@ -18,7 +18,7 @@ export default function SegmentLibrary({ onSegmentSelect }) {
       if (filter.processed !== null) params.append('processed', filter.processed);
       if (filter.trackId) params.append('trackId', filter.trackId);
       
-      const response = await fetch(`http://localhost:8000/segments?${params}`);
+      const response = await fetch(`/segments?${params}`);
       const data = await response.json();
       
       if (data.success) {
@@ -40,7 +40,7 @@ export default function SegmentLibrary({ onSegmentSelect }) {
 
   const processStemSeparation = async (segmentId) => {
     try {
-      const response = await fetch(`http://localhost:8000/segments/${segmentId}/separate-stems`, {
+      const response = await fetch(`/segments/${segmentId}/separate-stems`, {
         method: 'POST'
       });
       const data = await response.json();

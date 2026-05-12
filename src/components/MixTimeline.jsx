@@ -17,7 +17,7 @@ export default function MixTimeline({ segments = [] }) {
 
   const loadMixes = async () => {
     try {
-      const response = await fetch('http://localhost:8000/mixes');
+      const response = await fetch('/mixes');
       const data = await response.json();
       if (data.success) {
         setMixes(data.mixes);
@@ -70,7 +70,7 @@ export default function MixTimeline({ segments = [] }) {
     }
 
     try {
-      const response = await fetch('http://localhost:8000/mixes/create', {
+      const response = await fetch('/mixes/create', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -101,7 +101,7 @@ export default function MixTimeline({ segments = [] }) {
 
   const loadMix = async (mixId) => {
     try {
-      const response = await fetch(`http://localhost:8000/mixes/${mixId}`);
+      const response = await fetch(`/mixes/${mixId}`);
       const data = await response.json();
       
       if (data.success) {

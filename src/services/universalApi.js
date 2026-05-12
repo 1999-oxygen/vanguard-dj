@@ -3,7 +3,7 @@
  * Bridges the React frontend to the Python Universal Core backend.
  */
 
-const API_BASE_URL = import.meta.env.VITE_VANGUARD_API_URL || 'http://localhost:8000';
+const API_BASE_URL = import.meta.env.VITE_VANGUARD_API_URL || '';
 
 const forceSecureForHttpsPage = () => {
   if (typeof window === 'undefined') return API_BASE_URL;

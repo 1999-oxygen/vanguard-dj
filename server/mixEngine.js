@@ -1,10 +1,13 @@
 import ffmpeg from 'fluent-ffmpeg';
 import ffmpegInstaller from '@ffmpeg-installer/ffmpeg';
+import ffprobeInstaller from '@ffprobe-installer/ffprobe';
 import fs from 'fs/promises';
+import { statSync } from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
 ffmpeg.setFfmpegPath(ffmpegInstaller.path);
+ffmpeg.setFfprobePath(ffprobeInstaller.path);
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const MIXES_DIR = path.join(__dirname, '../data/mixes');
@@ -360,16 +363,32 @@ export class MixEngine {
     return new Promise((resolve, reject) => {
       ffmpeg.ffprobe(filePath, (err, metadata) => {
         if (err) {
-          console.error('Error getting audio duration:', err);
+          console.error('Error getting audio duration:', err.message);
           // Fallback: estimate based on file size and WAV format
           // WAV at 44.1kHz, 16-bit, stereo: ~176.4 KB per second
-          const stats = require('fs').statSync(filePath);
-          const estimatedDuration = stats.size / 176400;
-          console.log(`Using estimated duration: ${estimatedDuration.toFixed(2)}s`);
-          resolve(estimatedDuration);
+          try {
+            const stats = statSync(filePath);
+            const estimatedDuration = stats.size / 176400;
+            console.log(`Using estimated duration: ${estimatedDuration.toFixed(2)}s`);
+            resolve(estimatedDuration);
+          } catch (statErr) {
+            console.error('Stat fallback failed:', statErr.message);
+            resolve(0);
+          }
           return;
         }
-        const duration = metadata.format.duration;
+        const duration = parseFloat(metadata?.format?.duration);
+        if (!isFinite(duration) || duration <= 0) {
+          // ffprobe couldn't determine duration — fall back to file-size estimate
+          try {
+            const stats = statSync(filePath);
+            const estimatedDuration = stats.size / 176400;
+            console.log(`ffprobe duration unavailable, using estimate: ${estimatedDuration.toFixed(2)}s`);
+            return resolve(estimatedDuration);
+          } catch (_) {
+            return resolve(0);
+          }
+        }
         console.log(`Actual audio duration from ffprobe: ${duration.toFixed(2)}s`);
         resolve(duration);
       });
@@ -379,7 +398,12 @@ export class MixEngine {
   async extractSegmentSimple(item, outputPath) {
     return new Promise((resolve, reject) => {
       const inputPath = item.audioPath || item.original_path || item.metadata?.original_path;
-      const startTime = item.metadata?.original_start || item.startTime || item.start_time || 0;
+      // Only apply original_start when the input is the original track file (not a pre-extracted segment).
+      // When item.audioPath is already a segment WAV, extraction must start from 0.
+      const usingOriginalTrack = !item.audioPath && !!item.metadata?.original_path;
+      const startTime = usingOriginalTrack
+        ? (item.metadata?.original_start || 0)
+        : (item.startTime ?? item.start_time ?? 0);
       const duration = item.duration || 10;
       
       // Use provided fade times or calculate for gapless mixing

@@ -4,7 +4,7 @@
  * Falls back to client-side JS analysis if the backend is unreachable.
  */
 
-const API_BASE_URL = import.meta.env.VITE_VANGUARD_API_URL || 'http://localhost:8000';
+const API_BASE_URL = import.meta.env.VITE_VANGUARD_API_URL || '';
 
 const forceSecureForHttpsPage = () => {
   // Prevent mixed-content blocking when UI is served over HTTPS.

@@ -17,6 +17,7 @@ import pipeline from './analysis/SegmentProcessingPipeline.js';
 import stemSeparator from './analysis/StemSeparator.js';
 import mlExporter from './analysis/MLTrainingExporter.js';
 import { IntelligentSegmentConnector } from './analysis/SegmentConnector.js';
+import { registerIntelligentRoutes } from './intelligent/api.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const UPLOAD_DIR = path.join(__dirname, '..', 'uploads');
@@ -24,19 +25,34 @@ const app = express();
 const upload = multer({ dest: UPLOAD_DIR });
 
 app.use(cors({
-  origin: ['http://localhost:5173', 'https://vanguard.vercel.app']
+  origin: (origin, callback) => {
+    if (
+      !origin ||
+      /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin) ||
+      /^https?:\/\/100\.\d+\.\d+\.\d+(:\d+)?$/.test(origin) ||
+      origin === 'https://vanguard.vercel.app'
+    ) {
+      return callback(null, true);
+    }
+    callback(new Error(`CORS blocked: ${origin}`));
+  },
+  credentials: true,
 }));
 app.use(express.json({ limit: '50mb' })); // Increase limit to avoid 413 errors
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
 app.use('/data/segments', express.static(path.join(__dirname, '../data/segments')));
 app.use('/data/stems', express.static(path.join(__dirname, '../data/stems')));
 app.use('/data/mixes', express.static(path.join(__dirname, '../data/mixes')));
+app.use('/data/dj_segments', express.static(path.join(__dirname, '../data/dj_segments')));
 
 // Initialize intelligent mix engine
 const intelligentMixer = new IntelligentMixEngine(advancedIndexer, db);
 
 // Initialize intelligent segment connector
 const segmentConnector = new IntelligentSegmentConnector(db, advancedIndexer);
+
+// Mount the new "industry-leading" intelligent pipeline routes.
+registerIntelligentRoutes(app);
 
 app.get('/health', (req, res) => {
   res.json({ status: 'ok', version: 'node-v1.0', timestamp: new Date().toISOString() });
@@ -541,8 +557,25 @@ app.get('/mixes/:mixId/audio', async (req, res) => {
 app.get('/mixes', async (req, res) => {
   try {
     const mixes = await db.all('SELECT * FROM mixes ORDER BY created_at DESC');
-    
+
     const mixesWithTimeline = await Promise.all(mixes.map(async (mix) => {
+      // Backfill: if the stored duration disagrees with the actual audio file
+      // (e.g. legacy mixes that stored the planner's predicted duration),
+      // re-probe and correct it so the UI matches the real file length.
+      let duration = mix.duration;
+      try {
+        if (mix.output_path) {
+          await fs.access(mix.output_path);
+          const realDuration = await mixEngine.getAudioDuration(mix.output_path);
+          if (realDuration && Math.abs(realDuration - mix.duration) > 1) {
+            await db.run('UPDATE mixes SET duration = ? WHERE id = ?', [realDuration, mix.id]);
+            duration = realDuration;
+          }
+        }
+      } catch (_) {
+        // File missing or probe failed — leave stored duration alone.
+      }
+
       const timeline = await db.all(
         `SELECT mt.*, s.audio_path, s.duration as segment_duration, s.energy, s.bpm
          FROM mix_timeline mt
@@ -551,9 +584,9 @@ app.get('/mixes', async (req, res) => {
          ORDER BY mt.position`,
         [mix.id]
       );
-      return { ...mix, timeline };
+      return { ...mix, duration, timeline };
     }));
-    
+
     res.json({ success: true, mixes: mixesWithTimeline });
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
@@ -1154,7 +1187,7 @@ app.post('/mixes/create-auto', async (req, res) => {
         ...item,
         audioPath,
         segmentId: item.segmentId,
-        startTime: item.startTime,
+        startTime: 0, // audioPath is already the pre-extracted segment WAV; seek from 0
         duration: item.duration,
         fadeIn: item.fadeIn,
         fadeOut: item.fadeOut,
@@ -1181,13 +1214,17 @@ app.post('/mixes/create-auto', async (req, res) => {
     // Create the actual audio mix
     const mixPath = await mixEngine.createMix(mixId, validTimeline, allSegments);
 
+    // Use the actual rendered audio duration (from ffprobe), not the planner's
+    // predicted duration, so the player UI matches the real file length.
+    const renderedDuration = mixPath.duration || mixResult.totalDuration;
+
     // Store in database
     await db.run(
       'INSERT INTO mixes (id, name, duration, output_path) VALUES (?, ?, ?, ?)',
       [
         mixId,
         name || `Auto Mix ${new Date().toLocaleString()}`,
-        mixResult.totalDuration,
+        renderedDuration,
         mixPath.path
       ]
     );
@@ -1221,7 +1258,8 @@ app.post('/mixes/create-auto', async (req, res) => {
 
     console.log(`\n✅ Intelligent mix created: ${mixId}`);
     console.log(`   Segments: ${validTimeline.length}`);
-    console.log(`   Duration: ${mixResult.totalDuration.toFixed(1)}s`);
+    console.log(`   Planned duration: ${mixResult.totalDuration.toFixed(1)}s`);
+    console.log(`   Rendered duration: ${renderedDuration.toFixed(1)}s`);
     console.log(`   Avg BPM: ${mixResult.metadata.avgBpm}`);
     console.log(`   Harmony Score: ${mixResult.metadata.harmonyScore}`);
     console.log(`   Key Changes: ${mixResult.metadata.keyChanges}`);
@@ -1230,7 +1268,8 @@ app.post('/mixes/create-auto', async (req, res) => {
       success: true,
       mixId,
       path: mixPath.path,
-      duration: mixResult.totalDuration,
+      duration: renderedDuration,
+      plannedDuration: mixResult.totalDuration,
       segments: validTimeline.length,
       metadata: mixResult.metadata
     });
@@ -1311,7 +1350,7 @@ app.post('/mixes/create-flawless', async (req, res) => {
         ...item,
         audioPath,
         segmentId: item.segmentId,
-        startTime: item.startTime,
+        startTime: 0, // audioPath is already the pre-extracted segment WAV; seek from 0
         duration: item.duration,
         fadeIn: item.fadeIn,
         fadeOut: item.fadeOut,
@@ -1341,13 +1380,17 @@ app.post('/mixes/create-flawless', async (req, res) => {
     // Create the actual audio mix
     const mixPath = await mixEngine.createMix(mixId, validTimeline, allSegments);
 
+    // Use the actual rendered audio duration (from ffprobe), not the planner's
+    // predicted duration, so the player UI matches the real file length.
+    const renderedDuration = mixPath.duration || mixResult.totalDuration;
+
     // Store in database
     await db.run(
       'INSERT INTO mixes (id, name, duration, output_path) VALUES (?, ?, ?, ?)',
       [
         mixId,
         name || `Flawless Mix ${new Date().toLocaleString()}`,
-        mixResult.totalDuration,
+        renderedDuration,
         mixPath.path
       ]
     );
@@ -1386,14 +1429,16 @@ app.post('/mixes/create-flawless', async (req, res) => {
 
     console.log(`✅ Flawless mix created: ${mixId}`);
     console.log(`   Segments: ${validTimeline.length}`);
-    console.log(`   Duration: ${mixResult.totalDuration.toFixed(1)}s`);
+    console.log(`   Planned duration: ${mixResult.totalDuration.toFixed(1)}s`);
+    console.log(`   Rendered duration: ${renderedDuration.toFixed(1)}s`);
     console.log(`   Avg Compatibility: ${mixResult.metadata.avgCompatibility.toFixed(1)}`);
 
     res.json({
       success: true,
       mixId,
       path: mixPath.path,
-      duration: mixResult.totalDuration,
+      duration: renderedDuration,
+      plannedDuration: mixResult.totalDuration,
       metadata: mixResult.metadata
     });
   } catch (error) {

@@ -151,7 +151,42 @@ await db.run(`
   )
 `);
 
+// ====================== Intelligent DJ Segments (v3) ======================
+// Long, musically-meaningful "DJ phrases" produced by the IntelligentSegmenter.
+// Kept in its own table so the legacy `segments` table is untouched.
+await db.run(`
+  CREATE TABLE IF NOT EXISTS dj_segments (
+    id TEXT PRIMARY KEY,
+    track_id TEXT,
+    audio_path TEXT,
+    start_time REAL NOT NULL,
+    end_time REAL NOT NULL,
+    duration REAL NOT NULL,
+    bpm REAL,
+    key TEXT,
+    camelot_key TEXT,
+    type TEXT,                  -- INTRO / VERSE / BUILDUP / DROP / CHORUS / BREAK / OUTRO
+    intensity TEXT,             -- LOW / MEDIUM / HIGH
+    energy REAL,
+    low_energy REAL,
+    high_energy REAL,
+    flux REAL,
+    onset_density REAL,
+    energy_slope REAL,
+    mix_in_offset REAL,         -- seconds inside the segment for clean mix-in
+    mix_out_offset REAL,        -- seconds inside the segment for clean mix-out
+    quality REAL,
+    pool_tags TEXT,             -- JSON array of pool names this segment belongs to
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (track_id) REFERENCES tracks (id)
+  )
+`);
+await db.run('CREATE INDEX IF NOT EXISTS idx_dj_seg_bpm ON dj_segments(bpm)');
+await db.run('CREATE INDEX IF NOT EXISTS idx_dj_seg_type ON dj_segments(type)');
+await db.run('CREATE INDEX IF NOT EXISTS idx_dj_seg_energy ON dj_segments(energy)');
+await db.run('CREATE INDEX IF NOT EXISTS idx_dj_seg_camelot ON dj_segments(camelot_key)');
+
 console.log('✅ Database schema initialized');
-console.log('📊 Tables: tracks, segments, stems, mixes, mix_timeline');
+console.log('📊 Tables: tracks, segments, dj_segments, stems, mixes, mix_timeline');
 
 export default db;

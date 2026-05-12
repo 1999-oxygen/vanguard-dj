@@ -8,11 +8,15 @@ export default defineConfig({
     port: 5173,
     host: true,
     proxy: {
-      '/api': {
-        target: 'http://localhost:8000',
-        changeOrigin: true,
-        rewrite: (path) => path.replace(/^\/api/, ''),
-      },
+      '/health':      { target: 'http://localhost:8000', changeOrigin: true },
+      '/tracks':      { target: 'http://localhost:8000', changeOrigin: true },
+      '/segments':    { target: 'http://localhost:8000', changeOrigin: true },
+      '/mixes':       { target: 'http://localhost:8000', changeOrigin: true },
+      '/analyze':     { target: 'http://localhost:8000', changeOrigin: true },
+      '/dj-segments': { target: 'http://localhost:8000', changeOrigin: true },
+      '/dj':          { target: 'http://localhost:8000', changeOrigin: true },
+      '/pools':       { target: 'http://localhost:8000', changeOrigin: true },
+      '/data':        { target: 'http://localhost:8000', changeOrigin: true },
     },
   },
 })

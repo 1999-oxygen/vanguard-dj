@@ -21,6 +21,7 @@ import AtomDeck from './components/AtomDeck.jsx';
 import BackendStatus from './components/BackendStatus.jsx';
 import PreIngestLibrary from './components/PreIngestLibrary.jsx';
 import VanguardStudio from './components/VanguardStudio.jsx';
+import SmartMixPanel from './components/SmartMixPanel.jsx';
 
 import { useVanguard } from './hooks/useVanguard.js';
 import { useAudioEngine } from './hooks/useAudioEngine.js';
@@ -254,7 +255,7 @@ export default function App() {
 
           <div className="flex items-center gap-3">
             {/* Mode buttons */}
-            {['deck', 'segment', 'studio'].map(mode => (
+            {['deck', 'segment', 'studio', 'smart'].map(mode => (
               <button key={mode} onClick={() => setAppMode(mode)} className={`px-3 py-1.5 rounded-lg text-[11px] font-black uppercase tracking-wide transition-all ${appMode === mode ? 'bg-blue-400/20 text-blue-300 border border-blue-400/40' : 'text-slate-500 hover:text-slate-300 hover:bg-slate-800/50'}`}>
                 {mode.toUpperCase()}
               </button>
@@ -360,8 +361,8 @@ export default function App() {
 
           {/* Middle: Main Reactor */}
           <section className="lg:col-span-6 space-y-6">
-            <motion.div className="h-96 bg-black/40 border border-white/5 rounded-[3rem] p-8 backdrop-blur-xl overflow-hidden relative">
-              <div className="absolute inset-0 flex items-center justify-center">
+            <motion.div className={`${appMode === 'smart' ? 'min-h-[600px]' : 'h-96'} bg-black/40 border border-white/5 rounded-[3rem] p-8 backdrop-blur-xl overflow-hidden relative`}>
+              <div className={`absolute inset-0 ${appMode === 'smart' ? 'overflow-y-auto p-2' : 'flex items-center justify-center'}`}>
                 {appMode === 'deck' && <Waveform progress={ae.playbackProgress} />}
                 {appMode === 'segment' && (
                   <SegmentVisualizer
@@ -386,6 +387,9 @@ export default function App() {
                     onStopMix={se.stopMix}
                     addLog={v.addLog}
                   />
+                )}
+                {appMode === 'smart' && (
+                  <SmartMixPanel addLog={v.addLog} />
                 )}
               </div>
               <div className="absolute left-8 top-8 flex flex-col gap-2">

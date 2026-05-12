@@ -6,7 +6,7 @@ import {
 } from 'lucide-react';
 
 // Ensure we're using the correct API URL
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+const API_BASE = import.meta.env.VITE_API_URL || '';
 
 export default function VanguardDJ() {
   const [activeView, setActiveView] = useState('upload');
